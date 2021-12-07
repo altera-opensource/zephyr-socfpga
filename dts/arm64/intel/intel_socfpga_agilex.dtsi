@@ -97,6 +97,7 @@
 	mem0: memory@10000000 {
 		device_type = "memory";
 		reg = <0x10000000 0x200000>;
+		label = "mem_0";
 	};
 
 	uart0: uart@ffc02000 {
