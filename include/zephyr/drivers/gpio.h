@@ -730,10 +730,12 @@ static inline int z_impl_gpio_pin_configure(const struct device *port,
 	__ASSERT((cfg->port_pin_mask & (gpio_port_pins_t)BIT(pin)) != 0U,
 		 "Unsupported pin");
 
-	if ((flags & GPIO_ACTIVE_LOW) != 0) {
-		data->invert |= (gpio_port_pins_t)BIT(pin);
-	} else {
-		data->invert &= ~(gpio_port_pins_t)BIT(pin);
+	if (data) {
+		if ((flags & GPIO_ACTIVE_LOW) != 0) {
+			data->invert |= (gpio_port_pins_t)BIT(pin);
+		} else {
+			data->invert &= ~(gpio_port_pins_t)BIT(pin);
+		}
 	}
 
 	return api->pin_configure(port, pin, flags);
@@ -958,7 +960,7 @@ static inline int gpio_port_get(const struct device *port,
 	int ret;
 
 	ret = gpio_port_get_raw(port, value);
-	if (ret == 0) {
+	if (ret == 0 && data) {
 		*value ^= data->invert;
 	}
 
@@ -1317,7 +1319,7 @@ static inline int gpio_pin_set(const struct device *port, gpio_pin_t pin,
 	__ASSERT((cfg->port_pin_mask & (gpio_port_pins_t)BIT(pin)) != 0U,
 		 "Unsupported pin");
 
-	if (data->invert & (gpio_port_pins_t)BIT(pin)) {
+	if (data && data->invert & (gpio_port_pins_t)BIT(pin)) {
 		value = (value != 0) ? 0 : 1;
 	}
 
