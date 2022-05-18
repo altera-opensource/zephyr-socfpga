@@ -1,0 +1,12 @@
+# Synopsys DesignWare Watchdog Timer configuration option
+
+# Copyright (c) 2022, Intel Corporation. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+DT_COMPAT_SNPS_DESIGNWARE_WDT := snps,designware-watchdog
+
+config WDT_SNPS_DESIGNWARE
+	bool "Synopsys DesignWare Watchdog (WDT) Driver"
+	default $(dt_compat_enabled,$(DT_COMPAT_SNPS_DESIGNWARE_WDT))
+	help
+	  Enable WDT driver for Intel SoC FPGA.
