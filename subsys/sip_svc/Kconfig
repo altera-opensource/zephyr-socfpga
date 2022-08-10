@@ -1,0 +1,87 @@
+# Arm SiP service configuration options
+
+# Copyright (c) 2022, Intel Corporation. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig ARM_SIP_SVC_ARM64
+	bool "Support for the Arm SiP"
+	depends on ARM64
+	depends on HAS_ARM_SMCCC
+	help
+	  Enable Zephyr to communicate with secure system firmware
+	  implementing the platform-specifics via Arm SMC.
+
+if ARM_SIP_SVC_ARM64
+
+module = ARM_SIP_SVC_ARM64
+module-str = arm_sip_svc
+
+config ARM_SIP_SVC_HAS_HVC_CALLS
+	bool "Enables HVC calls to EL2 layer"
+	default n
+	depends on ARM_SIP_SVC_ARM64
+
+config ARM_SIP_SVC_HAS_SMC_CALLS
+	bool "Enables SMC calls to EL3 layer"
+	default n
+	depends on ARM_SIP_SVC_ARM64
+
+config ARM_SIP_SVC_INIT_PRIORITY
+	int "Arm SiP service init function priority"
+	default 0
+	depends on ARM_SIP_SVC_ARM64
+
+config ARM_SIP_SVC_THREAD_STACK_SIZE
+	int "Arm SiP service thread stack size"
+	default 1536
+	depends on ARM_SIP_SVC_ARM64
+	help
+	  Stack size of the Arm SiP  service.
+	  The thread calls the callbacks of the requestor
+	  when operation done.
+
+config ARM_SIP_SVC_THREAD_PRIORITY
+	int "Arm SiP service thread priority"
+	default 2
+	depends on ARM_SIP_SVC_ARM64
+	help
+	  Priority of the Arm SiP  service.
+	  The thread calls the callbacks of the requestor
+	  when operation done.
+
+config ARM_SIP_SVC_MSGQ_DEPTH
+	int "Arm SiP service request message queue depth"
+	default 16
+	depends on ARM_SIP_SVC_ARM64
+
+config ARM_SIP_SVC_MAX_CLIENT_COUNT
+	int "Arm SiP service maximun clients"
+	default 8
+	depends on ARM_SIP_SVC_ARM64
+
+config ARM_SIP_SVC_MAX_TRANSACTION_COUNT
+	int "Arm SiP service transaction id pool size"
+	default 64
+	depends on ARM_SIP_SVC_ARM64
+
+config ARM_SIP_SVC_MAX_JOB_COUNT
+	int "Arm SiP service maximun transactions to secure monitor firmware"
+	default 16
+	depends on ARM_SIP_SVC_ARM64
+
+config ARM_SIP_SVC_MAX_ASYNC_RESP_SIZE
+	int "Arm SiP service maximun asynchronous response size in byte"
+	default 4096
+	depends on ARM_SIP_SVC_ARM64
+
+config ARM_SIP_SVC_SHELL
+	bool "Arm SiP SVC service shell"
+	default y
+	depends on ARM_SIP_SVC_ARM64
+	depends on ARM_SIP_SVC_HAS_HVC_CALLS || ARM_SIP_SVC_HAS_SMC_CALLS
+	depends on SHELL
+	help
+	  Enable Arm SiP SVC service shell support to communicate with EL3/EL2
+	  layers using SMC/HVC calls.
+
+endif
