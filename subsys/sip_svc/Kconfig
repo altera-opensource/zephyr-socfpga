@@ -84,4 +84,13 @@ config ARM_SIP_SVC_SHELL
 	  Enable Arm SiP SVC service shell support to communicate with EL3/EL2
 	  layers using SMC/HVC calls.
 
+config ARM_SIP_SVC_MAILBOX_CLIENT_SHELL
+	bool "Arm SiP Mailbox client shell."
+	depends on ARM_SIP_SVC_ARM64
+	depends on ARM_SIP_SVC_HAS_SMC_CALLS
+	depends on SHELL
+	help
+	  Enable Arm SiP shell support for communicating with
+	  SDM in Intel agilex SoC using ARM Sip SVC service.
+
 endif
