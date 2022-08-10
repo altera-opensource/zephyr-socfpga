@@ -70,4 +70,6 @@ source "subsys/demand_paging/Kconfig"
 
 source "subsys/rtio/Kconfig"
 
+source "subsys/sip_svc/Kconfig"
+
 endmenu
