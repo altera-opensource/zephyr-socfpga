@@ -11,8 +11,11 @@
 #define WDT_TORR_OFFSET			0x4
 #define WDT_CRR_OFFSET			0xC
 
-#define WDT_CR_RMOD			0x0
-#define WDT_CR_EN			0x1
+#define WDT_CR_EN_BITPOS		0x0
+#define WDT_CR_EN_MASK			0x1
+
+#define WDT_CR_RMOD_BITPOS		0x1
+#define WDT_CR_RMOD_MASK		0x2
 
 #define WDT_SW_RST			0x76
 
