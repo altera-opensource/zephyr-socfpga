@@ -126,32 +126,15 @@ static int wdt_dw_feed(const struct device *dev, int channel_id)
 	return 0;
 }
 
-static int wdt_dw_init(const struct device *dev)
+static int wdt_dw_disable(const struct device *dev)
 {
 	if (!dev) {
 		return -ENODEV;
 	}
 
-	DEVICE_MMIO_MAP(dev, K_MEM_CACHE_NONE);
-
-	struct wdt_dw_config *const cfg = DEV_CFG(dev);
-	const struct device *clk_dev;
-	int inst = cfg->wdt_inst;
+	struct wdt_dw_config *const dev_cfg = DEV_CFG(dev);
+	int inst = dev_cfg->wdt_inst;
 	int bitmask = 0;
-
-	/*
-	 * Set clock rate from clock_frequency property if valid,
-	 * otherwise, get clock rate from clock manager
-	 */
-	if (cfg->clk_rate == 0U) {
-		clk_dev = device_get_binding(cfg->clock_drv);
-		if (!clk_dev) {
-			return -EINVAL;
-		}
-
-		clock_control_get_rate(clk_dev, (clock_control_subsys_t) &cfg->clkid,
-			   &cfg->clk_rate);
-	}
 
 	switch (inst) {
 	case WDT_0:
@@ -171,6 +154,42 @@ static int wdt_dw_init(const struct device *dev)
 	sys_set_bits(SOCFPGA_RSTMGR_REG_BASE + SOCFPGA_RSTMGR_PER1MODRST, bitmask);
 	sys_clear_bits(SOCFPGA_RSTMGR_REG_BASE + SOCFPGA_RSTMGR_PER1MODRST, bitmask);
 
+	return 0;
+}
+
+static int wdt_dw_init(const struct device *dev)
+{
+	if (!dev) {
+		return -ENODEV;
+	}
+
+	DEVICE_MMIO_MAP(dev, K_MEM_CACHE_NONE);
+
+	struct wdt_dw_config *const cfg = DEV_CFG(dev);
+	const struct device *clk_dev;
+	int ret = 0;
+
+	/*
+	 * Set clock rate from clock_frequency property if valid,
+	 * otherwise, get clock rate from clock manager
+	 */
+	if (cfg->clk_rate == 0U) {
+		clk_dev = device_get_binding(cfg->clock_drv);
+		if (!clk_dev) {
+			return -EINVAL;
+		}
+
+		clock_control_get_rate(clk_dev, (clock_control_subsys_t) &cfg->clkid,
+			   &cfg->clk_rate);
+	}
+
+	/* Reset Watchdog */
+	ret = wdt_dw_disable(dev);
+
+	if (ret != 0) {
+		return ret;
+	}
+
 	/* Register and enable WDT IRQ for this instance */
 	if (cfg->irq_config_func) {
 		cfg->irq_config_func(dev);
@@ -181,7 +200,7 @@ static int wdt_dw_init(const struct device *dev)
 
 static const struct wdt_driver_api wdt_api = {
 	.setup = wdt_dw_set_config,
-	.disable = NULL,
+	.disable = wdt_dw_disable,
 	.install_timeout = wdt_dw_install_timeout,
 	.feed = wdt_dw_feed
 };
