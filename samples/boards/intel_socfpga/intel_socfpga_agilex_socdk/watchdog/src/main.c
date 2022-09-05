@@ -118,6 +118,20 @@ int main(void)
 		k_msleep(DELAY_MS);
 	}
 
+	/* Disabling the interrupt based watchdogs */
+	for (i = 0; i < WDT_COUNT; ++i) {
+		if (wdt_config[i].interrupt_enabled == true) {
+			ret = wdt_disable(wdt[i]);
+
+			if (ret != 0) {
+				printk("Watchdog %s disable error [%d]", wdt[i]->name, ret);
+				return ret;
+			}
+		}
+	}
+
+	printk("Disabled interrupt based watchdogs\n");
+
 	printk("Watchdog test sample end\n");
 
 	/* Waiting for the SoC reset. */
