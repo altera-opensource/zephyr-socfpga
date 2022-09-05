@@ -16,16 +16,26 @@
 
 #define DEV_CFG(_dev) ((struct wdt_dw_config *const)(_dev)->config)
 
+#define DEV_DATA(_dev) ((struct wdt_dw_data *const)(_dev)->data)
+
+enum wdt_dw_rmod {
+	WDT_DW_RMOD_RESET = 0,
+	WDT_DW_RMOD_IRQ = 1
+};
+
 struct wdt_dw_config {
 	DEVICE_MMIO_ROM;
 	uint32_t clk_rate;
 	char *clock_drv;
 	uint32_t clkid;
 	uint32_t wdt_inst;
+	uint32_t wdt_rmod;
+	void (*irq_config_func)(const struct device *dev);
 };
 
 struct wdt_dw_data {
 	DEVICE_MMIO_RAM;
+	wdt_callback_t cb;
 };
 
 static int wdt_dw_set_config(const struct device *dev, uint8_t options)
@@ -38,7 +48,8 @@ static int wdt_dw_set_config(const struct device *dev, uint8_t options)
 
 	ARG_UNUSED(options);
 
-	sys_set_bits(reg_base + WDT_CR_OFFSET, WDT_CR_RMOD | WDT_CR_EN);
+	/* Enable WDT */
+	sys_set_bit(reg_base + WDT_CR_OFFSET, WDT_CR_EN_BITPOS);
 
 	return 0;
 }
@@ -54,6 +65,7 @@ static int wdt_dw_install_timeout(const struct device *dev, const struct wdt_tim
 	}
 
 	struct wdt_dw_config *const dev_cfg = DEV_CFG(dev);
+	struct wdt_dw_data *const dev_data = DEV_DATA(dev);
 
 	uintptr_t reg_base = DEVICE_MMIO_GET(dev);
 	uint64_t watchdog_clk = dev_cfg->clk_rate;
@@ -85,6 +97,16 @@ static int wdt_dw_install_timeout(const struct device *dev, const struct wdt_tim
 	}
 
 	sys_write32(((top_val << 4) | top_val), reg_base + WDT_TORR_OFFSET);
+
+	if ((cfg->callback) && (dev_cfg->wdt_rmod == WDT_DW_RMOD_IRQ)) {
+		sys_set_bit(reg_base + WDT_CR_OFFSET, WDT_CR_RMOD_BITPOS);
+
+		dev_data->cb = cfg->callback;
+	} else {
+		sys_clear_bit(reg_base + WDT_CR_OFFSET, WDT_CR_RMOD_BITPOS);
+
+		dev_data->cb = NULL;
+	}
 
 	return 0;
 }
@@ -149,6 +171,11 @@ static int wdt_dw_init(const struct device *dev)
 	sys_set_bits(SOCFPGA_RSTMGR_REG_BASE + SOCFPGA_RSTMGR_PER1MODRST, bitmask);
 	sys_clear_bits(SOCFPGA_RSTMGR_REG_BASE + SOCFPGA_RSTMGR_PER1MODRST, bitmask);
 
+	/* Register and enable WDT IRQ for this instance */
+	if (cfg->irq_config_func) {
+		cfg->irq_config_func(dev);
+	}
+
 	return 0;
 }
 
@@ -158,6 +185,31 @@ static const struct wdt_driver_api wdt_api = {
 	.install_timeout = wdt_dw_install_timeout,
 	.feed = wdt_dw_feed
 };
+
+#define WDT_SNPS_DESIGNWARE_IRQ_FUNC_DECLARE(inst) \
+	static void wdt_dw_irq_config_func##inst(const struct device *dev);
+
+#define WDT_SNPS_DESIGNWARE_IRQ_FUNC_INIT(inst) \
+	.wdt_rmod = DT_INST_IRQ_HAS_CELL(inst, irq), \
+	.irq_config_func = wdt_dw_irq_config_func##inst,
+
+#define WDT_SNPS_DESIGNWARE_IRQ_FUNC_DEFINE(inst) \
+	static void wdt_dw_isr##inst(const struct device *dev) \
+	{ \
+		struct wdt_dw_data *const dev_data = DEV_DATA(dev); \
+		\
+		if (dev_data->cb) { \
+			dev_data->cb(dev, 0); \
+		} \
+	} \
+	\
+	static void wdt_dw_irq_config_func##inst(const struct device *dev) \
+	{ \
+		ARG_UNUSED(dev); \
+		IRQ_CONNECT(DT_INST_IRQN(inst), DT_INST_IRQ(inst, priority), \
+				wdt_dw_isr##inst, DEVICE_DT_INST_GET(inst), 0); \
+		irq_enable(DT_INST_IRQN(inst)); \
+	}
 
 #define WDT_SNPS_DESIGNWARE_CLOCK_RATE_INIT(inst) \
 		COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, clock_frequency), \
@@ -173,22 +225,33 @@ static const struct wdt_driver_api wdt_api = {
 			) \
 		)
 
-#define CREATE_WDT_DEVICE(_inst)					\
-									\
-	static struct wdt_dw_data wdt_dw_data_##_inst;			\
-									\
-	static struct wdt_dw_config wdt_dw_config_##_inst = {		\
-		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(_inst)),		\
-		WDT_SNPS_DESIGNWARE_CLOCK_RATE_INIT(_inst)	\
-		.wdt_inst = _inst					\
-	};								\
-	DEVICE_DT_INST_DEFINE(_inst,					\
-			wdt_dw_init,					\
-			NULL,						\
-			&wdt_dw_data_##_inst,				\
-			&wdt_dw_config_##_inst,				\
-			PRE_KERNEL_1,					\
-			CONFIG_KERNEL_INIT_PRIORITY_DEVICE,		\
+#define CREATE_WDT_DEVICE(_inst) \
+	\
+	IF_ENABLED(DT_INST_IRQ_HAS_CELL(_inst, irq), \
+		(WDT_SNPS_DESIGNWARE_IRQ_FUNC_DECLARE(_inst))) \
+	\
+	static struct wdt_dw_data wdt_dw_data_##_inst = { \
+		.cb = NULL, \
+	}; \
+	\
+	static struct wdt_dw_config wdt_dw_config_##_inst = { \
+		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(_inst)), \
+		WDT_SNPS_DESIGNWARE_CLOCK_RATE_INIT(_inst) \
+		.wdt_inst = _inst, \
+		IF_ENABLED(DT_INST_IRQ_HAS_CELL(_inst, irq), \
+			(WDT_SNPS_DESIGNWARE_IRQ_FUNC_INIT(_inst))) \
+	}; \
+	\
+	IF_ENABLED(DT_INST_IRQ_HAS_CELL(_inst, irq), \
+		(WDT_SNPS_DESIGNWARE_IRQ_FUNC_DEFINE(_inst))) \
+	\
+	DEVICE_DT_INST_DEFINE(_inst, \
+			wdt_dw_init, \
+			NULL, \
+			&wdt_dw_data_##_inst, \
+			&wdt_dw_config_##_inst, \
+			PRE_KERNEL_1, \
+			CONFIG_KERNEL_INIT_PRIORITY_DEVICE, \
 			&wdt_api);
 
 DT_INST_FOREACH_STATUS_OKAY(CREATE_WDT_DEVICE)
