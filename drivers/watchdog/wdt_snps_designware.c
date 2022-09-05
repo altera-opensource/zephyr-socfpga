@@ -8,6 +8,7 @@
 
 #include <string.h>
 #include <drivers/watchdog.h>
+#include <drivers/clock_control.h>
 #include <device.h>
 #include <soc.h>
 #include <socfpga_reset_manager.h>
@@ -18,6 +19,8 @@
 struct wdt_dw_config {
 	DEVICE_MMIO_ROM;
 	uint32_t clk_rate;
+	char *clock_drv;
+	uint32_t clkid;
 	uint32_t wdt_inst;
 };
 
@@ -110,8 +113,23 @@ static int wdt_dw_init(const struct device *dev)
 	DEVICE_MMIO_MAP(dev, K_MEM_CACHE_NONE);
 
 	struct wdt_dw_config *const cfg = DEV_CFG(dev);
+	const struct device *clk_dev;
 	int inst = cfg->wdt_inst;
 	int bitmask = 0;
+
+	/*
+	 * Set clock rate from clock_frequency property if valid,
+	 * otherwise, get clock rate from clock manager
+	 */
+	if (cfg->clk_rate == 0U) {
+		clk_dev = device_get_binding(cfg->clock_drv);
+		if (!clk_dev) {
+			return -EINVAL;
+		}
+
+		clock_control_get_rate(clk_dev, (clock_control_subsys_t) &cfg->clkid,
+			   &cfg->clk_rate);
+	}
 
 	switch (inst) {
 	case WDT_0:
@@ -141,13 +159,27 @@ static const struct wdt_driver_api wdt_api = {
 	.feed = wdt_dw_feed
 };
 
+#define WDT_SNPS_DESIGNWARE_CLOCK_RATE_INIT(inst) \
+		COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, clock_frequency), \
+			( \
+				.clk_rate = DT_INST_PROP(inst, clock_frequency), \
+				.clock_drv = NULL, \
+				.clkid = 0, \
+			), \
+			( \
+				.clk_rate = 0, \
+				.clock_drv = DT_LABEL(DT_INST_PHANDLE(inst, clocks)), \
+				.clkid = DT_INST_PHA_BY_IDX(inst, clocks, 0, clkid), \
+			) \
+		)
+
 #define CREATE_WDT_DEVICE(_inst)					\
 									\
 	static struct wdt_dw_data wdt_dw_data_##_inst;			\
 									\
 	static struct wdt_dw_config wdt_dw_config_##_inst = {		\
 		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(_inst)),		\
-		.clk_rate = DT_INST_PROP(_inst, clock_frequency),	\
+		WDT_SNPS_DESIGNWARE_CLOCK_RATE_INIT(_inst)	\
 		.wdt_inst = _inst					\
 	};								\
 	DEVICE_DT_INST_DEFINE(_inst,					\

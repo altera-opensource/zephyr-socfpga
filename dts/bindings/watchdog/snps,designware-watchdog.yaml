@@ -17,5 +17,5 @@ properties:
 
     clock-frequency:
       type: int
-      required: true
+      required: false
       description: clock frequency information for Watchdog Timer
