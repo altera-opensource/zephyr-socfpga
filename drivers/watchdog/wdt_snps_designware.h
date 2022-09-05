@@ -15,7 +15,8 @@
 #define WDT_CR_EN			0x1
 
 #define WDT_SW_RST			0x76
-#define WDT_MIN_CYCLES                  65536
+
+#define WDT_DW_MAX_TOP			15
 
 #define WDT_0				0
 #define WDT_1				1

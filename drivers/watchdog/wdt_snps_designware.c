@@ -31,7 +31,7 @@ static int wdt_dw_set_config(const struct device *dev, uint8_t options)
 		return -ENODEV;
 	}
 
-	uint32_t reg_base = DEVICE_MMIO_GET(dev);
+	uintptr_t reg_base = DEVICE_MMIO_GET(dev);
 
 	ARG_UNUSED(options);
 
@@ -52,12 +52,13 @@ static int wdt_dw_install_timeout(const struct device *dev, const struct wdt_tim
 
 	struct wdt_dw_config *const dev_cfg = DEV_CFG(dev);
 
-	uint32_t reg_base = DEVICE_MMIO_GET(dev);
-	uint32_t watchdog_clk = dev_cfg->clk_rate;
-	uint32_t period_ms = cfg->window.max;
-	uint8_t cycles_i = 0;
-	uint32_t wdt_cycles = WDT_MIN_CYCLES;
-	uint32_t top_init_cycles = (period_ms * watchdog_clk) / 1000;
+	uintptr_t reg_base = DEVICE_MMIO_GET(dev);
+	uint64_t watchdog_clk = dev_cfg->clk_rate;
+	uint64_t period_ms = cfg->window.max;
+	uint64_t wdt_cycles = 0;
+	uint64_t top_init_cycles = ((period_ms * watchdog_clk) / 1000);
+	uint8_t top_val = WDT_DW_MAX_TOP;
+	uint8_t i = 0;
 
 	if (cfg->flags != WDT_FLAG_RESET_SOC) {
 		return -ENOTSUP;
@@ -67,12 +68,20 @@ static int wdt_dw_install_timeout(const struct device *dev, const struct wdt_tim
 		return -EINVAL;
 	}
 
-	while ((cycles_i < 15) && (wdt_cycles < top_init_cycles)) {
-		wdt_cycles = (wdt_cycles << 1);
-		cycles_i++;
+	/* There are 16 possible timeout values in 0..15 where the number of
+	 * cycles is 2 ^ (16 + i) and the watchdog counts down.
+	 */
+	for (i = 0; i <= WDT_DW_MAX_TOP; i++) {
+		wdt_cycles = (1U << (16 + i));
+
+		/* Iterate until we find the closest match */
+		if (wdt_cycles >= top_init_cycles) {
+			top_val = i;
+			break;
+		}
 	}
 
-	sys_set_bits(reg_base + WDT_TORR_OFFSET, (cycles_i << 4) | cycles_i);
+	sys_write32(((top_val << 4) | top_val), reg_base + WDT_TORR_OFFSET);
 
 	return 0;
 }
@@ -83,7 +92,7 @@ static int wdt_dw_feed(const struct device *dev, int channel_id)
 		return -ENODEV;
 	}
 
-	uint32_t reg_base = DEVICE_MMIO_GET(dev);
+	uintptr_t reg_base = DEVICE_MMIO_GET(dev);
 
 	ARG_UNUSED(channel_id);
 
