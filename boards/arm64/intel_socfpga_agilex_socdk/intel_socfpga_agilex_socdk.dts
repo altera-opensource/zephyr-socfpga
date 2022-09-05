@@ -51,10 +51,16 @@
 };
 
 &watchdog0 {
+	interrupt-parent = <&gic>;
+	interrupts = <GIC_SPI 117 IRQ_TYPE_LEVEL
+			IRQ_DEFAULT_PRIORITY>;
 	status = "okay";
 };
 
 &watchdog1 {
+	interrupt-parent = <&gic>;
+	interrupts = <GIC_SPI 118 IRQ_TYPE_LEVEL
+			IRQ_DEFAULT_PRIORITY>;
 	status = "okay";
 };
 
