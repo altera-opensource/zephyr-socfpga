@@ -71,3 +71,4 @@
 &watchdog3 {
 	status = "okay";
 };
+
