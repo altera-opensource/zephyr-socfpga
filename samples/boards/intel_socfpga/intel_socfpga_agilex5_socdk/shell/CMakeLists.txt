@@ -6,5 +6,3 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(shell)
 
 target_sources(app PRIVATE src/main.c)
-# TeikHeng: temporarily comment out for simics
-#target_sources(app PRIVATE src/mailbox.c)
