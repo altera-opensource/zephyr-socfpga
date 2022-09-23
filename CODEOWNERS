@@ -531,7 +531,7 @@
 /dts/bindings/adc/st*stm32-adc.yaml       @cybertale
 /dts/bindings/modem/*hl7800.yaml          @rerickson1
 /dts/bindings/serial/ns16550.yaml         @dcpleung @nashif
-/dts/bindings/watchdog/*snps,designware*.yaml @alifzakuan
+/dts/bindings/watchdog/*snps,designware*.yaml @amitraddi
 /dts/bindings/counter/snps,dw-timers.yaml @pbalsundar
 /dts/bindings/wifi/*esp-at.yaml           @mniestroj
 /dts/bindings/*/*gd32*                    @nandojve
