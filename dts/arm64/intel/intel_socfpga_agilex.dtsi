@@ -192,6 +192,7 @@
 		reg = <0xffd00200 0x100>;
 		label = "WDT_0";
 		clocks = <&clock INTEL_SOCFPGA_CLOCK_WDT>;
+		resets = <&reset RSTMGR_WATCHDOG0_RSTLINE>;
 		status = "disabled";
 	};
 
@@ -200,6 +201,7 @@
 		reg = <0xffd00300 0x100>;
 		label = "WDT_1";
 		clocks = <&clock INTEL_SOCFPGA_CLOCK_WDT>;
+		resets = <&reset RSTMGR_WATCHDOG1_RSTLINE>;
 		status = "disabled";
 	};
 
@@ -208,6 +210,7 @@
 		reg = <0xffd00400 0x100>;
 		label = "WDT_2";
 		clocks = <&clock INTEL_SOCFPGA_CLOCK_WDT>;
+		resets = <&reset RSTMGR_WATCHDOG2_RSTLINE>;
 		status = "disabled";
 	};
 
@@ -216,6 +219,7 @@
 		reg = <0xffd00500 0x100>;
 		label = "WDT_3";
 		clocks = <&clock INTEL_SOCFPGA_CLOCK_WDT>;
+		resets = <&reset RSTMGR_WATCHDOG3_RSTLINE>;
 		status = "disabled";
 	};
 

@@ -21,9 +21,4 @@
 
 #define WDT_DW_MAX_TOP			15
 
-#define WDT_0				0
-#define WDT_1				1
-#define WDT_2				2
-#define WDT_3				3
-
 #endif /* WDT_SNPS_DESIGNWARE_H */

@@ -7,11 +7,11 @@
 #define DT_DRV_COMPAT snps_designware_watchdog
 
 #include <string.h>
-#include <drivers/watchdog.h>
-#include <drivers/clock_control.h>
 #include <device.h>
 #include <soc.h>
-#include <socfpga_reset_manager.h>
+#include <drivers/watchdog.h>
+#include <drivers/clock_control.h>
+#include <drivers/reset.h>
 #include "wdt_snps_designware.h"
 
 #define DEV_CFG(_dev) ((struct wdt_dw_config *const)(_dev)->config)
@@ -28,7 +28,8 @@ struct wdt_dw_config {
 	uint32_t clk_rate;
 	char *clock_drv;
 	uint32_t clkid;
-	uint32_t wdt_inst;
+	char *reset_drv;
+	uint32_t reset_line;
 	uint32_t wdt_rmod;
 	void (*irq_config_func)(const struct device *dev);
 };
@@ -133,26 +134,16 @@ static int wdt_dw_disable(const struct device *dev)
 	}
 
 	struct wdt_dw_config *const dev_cfg = DEV_CFG(dev);
-	int inst = dev_cfg->wdt_inst;
-	int bitmask = 0;
+	const struct device *reset_dev;
 
-	switch (inst) {
-	case WDT_0:
-		bitmask = RSTMGR_PER1MODRST_WATCHDOG0;
-		break;
-	case WDT_1:
-		bitmask = RSTMGR_PER1MODRST_WATCHDOG1;
-		break;
-	case WDT_2:
-		bitmask = RSTMGR_PER1MODRST_WATCHDOG2;
-		break;
-	case WDT_3:
-		bitmask = RSTMGR_PER1MODRST_WATCHDOG3;
-		break;
+	reset_dev = device_get_binding(dev_cfg->reset_drv);
+
+	if (!reset_dev) {
+		return -ENODEV;
 	}
 
-	sys_set_bits(SOCFPGA_RSTMGR_REG_BASE + SOCFPGA_RSTMGR_PER1MODRST, bitmask);
-	sys_clear_bits(SOCFPGA_RSTMGR_REG_BASE + SOCFPGA_RSTMGR_PER1MODRST, bitmask);
+	reset_line_assert(reset_dev, dev_cfg->reset_line);
+	reset_line_deassert(reset_dev, dev_cfg->reset_line);
 
 	return 0;
 }
@@ -256,7 +247,10 @@ static const struct wdt_driver_api wdt_api = {
 	static struct wdt_dw_config wdt_dw_config_##_inst = { \
 		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(_inst)), \
 		WDT_SNPS_DESIGNWARE_CLOCK_RATE_INIT(_inst) \
-		.wdt_inst = _inst, \
+	\
+		.reset_drv = DT_LABEL(DT_INST_PHANDLE(_inst, resets)), \
+		.reset_line = DT_INST_PHA_BY_IDX(_inst, resets, 0, id), \
+	\
 		IF_ENABLED(DT_INST_IRQ_HAS_CELL(_inst, irq), \
 			(WDT_SNPS_DESIGNWARE_IRQ_FUNC_INIT(_inst))) \
 	}; \
