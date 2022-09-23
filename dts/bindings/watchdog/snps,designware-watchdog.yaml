@@ -15,6 +15,9 @@ properties:
     label:
       required: true
 
+    resets:
+      required: true
+
     clock-frequency:
       type: int
       required: false
