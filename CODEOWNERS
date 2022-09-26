@@ -368,6 +368,7 @@
 /drivers/regulator/*pmic*                 @danieldegrasse
 /drivers/reset/                           @andrei-edward-popa
 /drivers/reset/reset_intel_socfpga.c      @nbalabak
+/drivers/reset/Kconfig.intel_socfpga      @nbalabak
 /drivers/sensor/                          @MaureenHelm
 /drivers/sensor/ams_iAQcore/              @alexanderwachter
 /drivers/sensor/ens210/                   @alexanderwachter
@@ -551,6 +552,8 @@
 /dts/bindings/sensor/*bme680*             @BoschSensortec
 /dts/bindings/sensor/*ina23*              @bbilas
 /dts/bindings/sensor/st*                  @avisconti
+/dts/bindings/cpu/niosv-g.yaml            @sweeaun
+/dts/bindings/reset/intel,socfpga-reset.yaml    @nbalabak
 /dts/common/                              @galak
 /include/                                 @nashif @carlescufi @galak @MaureenHelm
 /include/zephyr/drivers/*/*litex*                @mateusz-holenko @kgugala @pgielda
