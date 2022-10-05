@@ -1,0 +1,8 @@
+# Copyright (C) 2022, Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+description: INTEL FPGA NIOSV Softcore Processor
+
+compatible: "niosv"
+
+include: cpu.yaml
