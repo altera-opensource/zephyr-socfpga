@@ -23,40 +23,35 @@
 #define WDT_2_TIMEOUT_MS	5000
 #define WDT_3_TIMEOUT_MS	10000
 
-#define WDT_NODE_0 DT_INST(0, snps_designware_watchdog)
-#define WDT_NODE_1 DT_INST(1, snps_designware_watchdog)
-#define WDT_NODE_2 DT_INST(2, snps_designware_watchdog)
-#define WDT_NODE_3 DT_INST(3, snps_designware_watchdog)
-
-#define WDT_DEV_NAME_0 DT_LABEL(WDT_NODE_0)
-#define WDT_DEV_NAME_1 DT_LABEL(WDT_NODE_1)
-#define WDT_DEV_NAME_2 DT_LABEL(WDT_NODE_2)
-#define WDT_DEV_NAME_3 DT_LABEL(WDT_NODE_3)
+#define WDT_NODE_0 DT_NODELABEL(watchdog0)
+#define WDT_NODE_1 DT_NODELABEL(watchdog1)
+#define WDT_NODE_2 DT_NODELABEL(watchdog2)
+#define WDT_NODE_3 DT_NODELABEL(watchdog3)
 
 struct wdt_configuration {
-	char *wdt_dev_name;
+	const struct device *wdt_dev;
 	uint32_t timeout_ms;
 	bool interrupt_enabled;
 };
 
 static struct wdt_configuration wdt_config[WDT_COUNT] = {
 	{
-		.wdt_dev_name = WDT_DEV_NAME_0,
+		.wdt_dev = DEVICE_DT_GET(WDT_NODE_0),
 		.timeout_ms = WDT_0_TIMEOUT_MS,
 		.interrupt_enabled = (bool)DT_IRQ_HAS_CELL(WDT_NODE_0, irq),
 	},
 	{
-		.wdt_dev_name = WDT_DEV_NAME_1,
+		.wdt_dev = DEVICE_DT_GET(WDT_NODE_1),
 		.timeout_ms = WDT_1_TIMEOUT_MS,
 		.interrupt_enabled = (bool)DT_IRQ_HAS_CELL(WDT_NODE_1, irq),
 	},
 	{
-		.wdt_dev_name = WDT_DEV_NAME_2,
+		.wdt_dev = DEVICE_DT_GET(WDT_NODE_2),
 		.timeout_ms = WDT_2_TIMEOUT_MS,
 		.interrupt_enabled = (bool)DT_IRQ_HAS_CELL(WDT_NODE_2, irq),
 	},
 	{
-		.wdt_dev_name = WDT_DEV_NAME_3,
+		.wdt_dev = DEVICE_DT_GET(WDT_NODE_3),
 		.timeout_ms = WDT_3_TIMEOUT_MS,
 		.interrupt_enabled = (bool)DT_IRQ_HAS_CELL(WDT_NODE_3, irq),
 	},
@@ -77,30 +72,35 @@ int main(void)
 {
 	int i, j;
 	int ret = 0;
-	const struct device *wdt[WDT_COUNT];
 
 	printk("Watchdog test sample\n");
 
 	/* Enable all 4 watchdogs */
 	for (i = 0; i < WDT_COUNT; ++i) {
-		wdt[i] = device_get_binding(wdt_config[i].wdt_dev_name);
 
-		ret = wdt_inst_timeout(wdt[i], wdt_config[i].timeout_ms,
+		/* Check if the WDT instance is initialized and ready */
+		if (!device_is_ready(wdt_config[i].wdt_dev)) {
+			printk("Watchdog %s is not ready\n", wdt_config[i].wdt_dev->name);
+			return -ENODEV;
+		}
+
+		ret = wdt_inst_timeout(wdt_config[i].wdt_dev, wdt_config[i].timeout_ms,
 					wdt_config[i].interrupt_enabled);
 
 		if (ret != 0) {
-			printk("Watchdog %s install timeout error [%d]\n", wdt[i]->name, ret);
+			printk("Watchdog %s install timeout error [%d]\n",
+					wdt_config[i].wdt_dev->name, ret);
 			return ret;
 		}
 
-		ret = wdt_setup(wdt[i], WDT_OPT_PAUSE_HALTED_BY_DBG);
+		ret = wdt_setup(wdt_config[i].wdt_dev, WDT_OPT_PAUSE_HALTED_BY_DBG);
 
 		if (ret != 0) {
-			printk("Watchdog %s setup error [%d]", wdt[i]->name, ret);
+			printk("Watchdog %s setup error [%d]", wdt_config[i].wdt_dev->name, ret);
 			return ret;
 		}
 
-		printk("Watchdog %s setup successful.\n", wdt[i]->name);
+		printk("Watchdog %s setup successful.\n", wdt_config[i].wdt_dev->name);
 	}
 
 	/* Test watchdog counter restart */
@@ -111,7 +111,7 @@ int main(void)
 
 		for (i = 0; i < WDT_COUNT; ++i) {
 			if (wdt_config[i].interrupt_enabled == false) {
-				wdt_feed(wdt[i], 0);
+				wdt_feed(wdt_config[i].wdt_dev, 0);
 			}
 		}
 
@@ -121,18 +121,17 @@ int main(void)
 	/* Disabling the interrupt based watchdogs */
 	for (i = 0; i < WDT_COUNT; ++i) {
 		if (wdt_config[i].interrupt_enabled == true) {
-			ret = wdt_disable(wdt[i]);
+			ret = wdt_disable(wdt_config[i].wdt_dev);
 
 			if (ret != 0) {
-				printk("Watchdog %s disable error [%d]", wdt[i]->name, ret);
+				printk("Watchdog %s disable error [%d]",
+						wdt_config[i].wdt_dev->name, ret);
 				return ret;
 			}
 		}
 	}
 
 	printk("Disabled interrupt based watchdogs\n");
-
-	printk("Watchdog test sample end\n");
 
 	/* Waiting for the SoC reset. */
 	printk("Waiting for reset...\n");
