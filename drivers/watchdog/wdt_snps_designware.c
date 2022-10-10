@@ -7,11 +7,11 @@
 #define DT_DRV_COMPAT snps_designware_watchdog
 
 #include <string.h>
-#include <device.h>
 #include <soc.h>
-#include <drivers/watchdog.h>
-#include <drivers/clock_control.h>
-#include <drivers/reset.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/watchdog.h>
+#include <zephyr/drivers/clock_control.h>
+#include <zephyr/drivers/reset.h>
 
 #define DEV_CFG(_dev) ((struct wdt_dw_config *const)(_dev)->config)
 
