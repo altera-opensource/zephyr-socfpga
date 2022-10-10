@@ -13,7 +13,7 @@
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/reset.h>
 
-#define DEV_CFG(_dev) ((struct wdt_dw_config *const)(_dev)->config)
+#define DEV_CFG(_dev) ((const struct wdt_dw_config *)(_dev)->config)
 
 #define DEV_DATA(_dev) ((struct wdt_dw_data *const)(_dev)->data)
 
@@ -40,7 +40,7 @@ enum wdt_dw_rmod {
 struct wdt_dw_config {
 	DEVICE_MMIO_ROM;
 	uint32_t clk_rate;
-	char *clock_drv;
+	const struct device *clock_dev;
 	uint32_t clkid;
 	struct reset_dt_spec reset_spec;
 	uint32_t wdt_rmod;
@@ -49,6 +49,7 @@ struct wdt_dw_config {
 
 struct wdt_dw_data {
 	DEVICE_MMIO_RAM;
+	uint32_t clk_rate;
 	wdt_callback_t cb;
 };
 
@@ -78,11 +79,11 @@ static int wdt_dw_install_timeout(const struct device *dev, const struct wdt_tim
 		return -ENODATA;
 	}
 
-	struct wdt_dw_config *const dev_cfg = DEV_CFG(dev);
+	const struct wdt_dw_config *dev_cfg = DEV_CFG(dev);
 	struct wdt_dw_data *const dev_data = DEV_DATA(dev);
 
 	uintptr_t reg_base = DEVICE_MMIO_GET(dev);
-	uint64_t watchdog_clk = dev_cfg->clk_rate;
+	uint64_t watchdog_clk = dev_data->clk_rate;
 	uint64_t period_ms = cfg->window.max;
 	uint64_t wdt_cycles = 0;
 	uint64_t top_init_cycles = ((period_ms * watchdog_clk) / 1000);
@@ -146,7 +147,7 @@ static int wdt_dw_disable(const struct device *dev)
 		return -ENODEV;
 	}
 
-	struct wdt_dw_config *const dev_cfg = DEV_CFG(dev);
+	const struct wdt_dw_config *dev_cfg = DEV_CFG(dev);
 
 	if (!device_is_ready(dev_cfg->reset_spec.dev)) {
 		return -ENODEV;
@@ -166,22 +167,21 @@ static int wdt_dw_init(const struct device *dev)
 
 	DEVICE_MMIO_MAP(dev, K_MEM_CACHE_NONE);
 
-	struct wdt_dw_config *const cfg = DEV_CFG(dev);
-	const struct device *clk_dev;
+	const struct wdt_dw_config *dev_cfg = DEV_CFG(dev);
+	struct wdt_dw_data *const dev_data = DEV_DATA(dev);
 	int ret = 0;
 
 	/*
 	 * Set clock rate from clock_frequency property if valid,
 	 * otherwise, get clock rate from clock manager
 	 */
-	if (cfg->clk_rate == 0U) {
-		clk_dev = device_get_binding(cfg->clock_drv);
-		if (!clk_dev) {
+	if (dev_cfg->clk_rate == 0U) {
+		if (!device_is_ready(dev_cfg->clock_dev)) {
 			return -EINVAL;
 		}
 
-		clock_control_get_rate(clk_dev, (clock_control_subsys_t) &cfg->clkid,
-			   &cfg->clk_rate);
+		clock_control_get_rate(dev_cfg->clock_dev, (clock_control_subsys_t) &dev_cfg->clkid,
+			   &dev_data->clk_rate);
 	}
 
 	/* Reset Watchdog */
@@ -192,8 +192,8 @@ static int wdt_dw_init(const struct device *dev)
 	}
 
 	/* Register and enable WDT IRQ for this instance */
-	if (cfg->irq_config_func) {
-		cfg->irq_config_func(dev);
+	if (dev_cfg->irq_config_func) {
+		dev_cfg->irq_config_func(dev);
 	}
 
 	return 0;
@@ -235,12 +235,12 @@ static const struct wdt_driver_api wdt_api = {
 		COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, clock_frequency), \
 			( \
 				.clk_rate = DT_INST_PROP(inst, clock_frequency), \
-				.clock_drv = NULL, \
+				.clock_dev = NULL, \
 				.clkid = 0, \
 			), \
 			( \
 				.clk_rate = 0, \
-				.clock_drv = DT_LABEL(DT_INST_PHANDLE(inst, clocks)), \
+				.clock_dev = DEVICE_DT_GET(DT_INST_PHANDLE(inst, clocks)), \
 				.clkid = DT_INST_PHA_BY_IDX(inst, clocks, 0, clkid), \
 			) \
 		)
