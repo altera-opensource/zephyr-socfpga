@@ -12,11 +12,25 @@
 #include <drivers/watchdog.h>
 #include <drivers/clock_control.h>
 #include <drivers/reset.h>
-#include "wdt_snps_designware.h"
 
 #define DEV_CFG(_dev) ((struct wdt_dw_config *const)(_dev)->config)
 
 #define DEV_DATA(_dev) ((struct wdt_dw_data *const)(_dev)->data)
+
+#define WDT_CR_OFFSET			0x0
+#define WDT_CRR_OFFSET			0xC
+
+#define WDT_TORR_OFFSET			0x4
+
+#define WDT_CR_EN_BITPOS		0x0
+#define WDT_CR_EN_MASK			0x1
+
+#define WDT_CR_RMOD_BITPOS		0x1
+#define WDT_CR_RMOD_MASK		0x2
+
+#define WDT_SW_RST			0x76
+
+#define WDT_DW_MAX_TOP			15
 
 enum wdt_dw_rmod {
 	WDT_DW_RMOD_RESET = 0,
