@@ -42,8 +42,7 @@ struct wdt_dw_config {
 	uint32_t clk_rate;
 	char *clock_drv;
 	uint32_t clkid;
-	char *reset_drv;
-	uint32_t reset_line;
+	struct reset_dt_spec reset_spec;
 	uint32_t wdt_rmod;
 	void (*irq_config_func)(const struct device *dev);
 };
@@ -148,16 +147,13 @@ static int wdt_dw_disable(const struct device *dev)
 	}
 
 	struct wdt_dw_config *const dev_cfg = DEV_CFG(dev);
-	const struct device *reset_dev;
 
-	reset_dev = device_get_binding(dev_cfg->reset_drv);
-
-	if (!reset_dev) {
+	if (!device_is_ready(dev_cfg->reset_spec.dev)) {
 		return -ENODEV;
 	}
 
-	reset_line_assert(reset_dev, dev_cfg->reset_line);
-	reset_line_deassert(reset_dev, dev_cfg->reset_line);
+	reset_line_assert(dev_cfg->reset_spec.dev, dev_cfg->reset_spec.id);
+	reset_line_deassert(dev_cfg->reset_spec.dev, dev_cfg->reset_spec.id);
 
 	return 0;
 }
@@ -262,8 +258,7 @@ static const struct wdt_driver_api wdt_api = {
 		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(_inst)), \
 		WDT_SNPS_DESIGNWARE_CLOCK_RATE_INIT(_inst) \
 	\
-		.reset_drv = DT_LABEL(DT_INST_PHANDLE(_inst, resets)), \
-		.reset_line = DT_INST_PHA_BY_IDX(_inst, resets, 0, id), \
+		.reset_spec = RESET_DT_SPEC_INST_GET(_inst), \
 	\
 		IF_ENABLED(DT_INST_IRQ_HAS_CELL(_inst, irq), \
 			(WDT_SNPS_DESIGNWARE_IRQ_FUNC_INIT(_inst))) \
