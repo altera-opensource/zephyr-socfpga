@@ -13,9 +13,6 @@ properties:
     reg:
       required: true
 
-    label:
-      required: true
-
     clock-frequency:
       type: int
       required: false
