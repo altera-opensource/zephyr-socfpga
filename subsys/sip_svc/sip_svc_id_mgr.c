@@ -7,8 +7,8 @@
  * clients and transactions.
  */
 
-#include <kernel.h>
-#include <sip_svc/sip_svc.h>
+#include <zephyr/zephyr.h>
+#include <zephyr/sip_svc/sip_svc.h>
 #include "sip_svc_id_mgr.h"
 
 struct sip_svc_id_pool *sip_svc_id_mgr_create(uint32_t size)
