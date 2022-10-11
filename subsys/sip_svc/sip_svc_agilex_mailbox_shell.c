@@ -6,12 +6,13 @@
  * A mailbox client command shell on sip_svc service to communicate with SDM.
  */
 
-#include <shell/shell.h>
-#include <stdlib.h>
-#include <string.h>
+#include <zephyr/zephyr.h>
 #include <zephyr/sip_svc/sip_svc.h>
 #include <zephyr/sip_svc/sip_svc_agilex_mailbox.h>
 #include <zephyr/sip_svc/sip_svc_agilex_smc.h>
+#include <zephyr/shell/shell.h>
+#include <stdlib.h>
+#include <string.h>
 
 struct private_data {
 	struct k_sem semaphore;
