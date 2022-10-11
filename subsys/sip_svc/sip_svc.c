@@ -107,15 +107,15 @@
  *
  */
 
-#define LOG_LEVEL CONFIG_ARM_SIP_SVC_LOG_LEVEL
-#include <logging/log.h>
-LOG_MODULE_REGISTER(sip_svc);
-
-#include <zephyr.h>
 #include <string.h>
-#include <device.h>
+#include <zephyr/zephyr.h>
+#include <zephyr/device.h>
 #include <zephyr/sip_svc/sip_svc.h>
 #include "sip_svc_id_mgr.h"
+
+#define LOG_LEVEL CONFIG_ARM_SIP_SVC_LOG_LEVEL
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(sip_svc);
 
 __weak bool sip_svc_plat_func_id_valid(uint32_t command, uint32_t func_id)
 {

@@ -39,8 +39,8 @@
  *           re-open the channel when in ABORT state/
  */
 
-#include <arch/arm64/arm-smccc.h>
-#include <sip_svc/sip_svc_proto.h>
+#include <zephyr/arch/arm64/arm-smccc.h>
+#include <zephyr/sip_svc/sip_svc_proto.h>
 
 #define SIP_SVC_CLIENT_ST_INVALID	0
 #define SIP_SVC_CLIENT_ST_IDLE		1
