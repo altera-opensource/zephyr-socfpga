@@ -6,11 +6,9 @@
  * Arm SiP service shell command 'sip_svc'.
  */
 
-#include <sys/printk.h>
-#include <shell/shell.h>
+#include <zephyr/shell/shell.h>
+#include <zephyr/sip_svc/sip_svc.h>
 #include <stdlib.h>
-#include <device.h>
-#include <sip_svc/sip_svc.h>
 
 struct private_data {
 	struct k_sem semaphore;
