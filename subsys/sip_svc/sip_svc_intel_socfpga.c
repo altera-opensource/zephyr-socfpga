@@ -6,11 +6,10 @@
  * Intel SoC FPGA platform specific functions used by Arm SiP Services.
  */
 
-#include <kernel.h>
-#include <device.h>
-#include <sip_svc/sip_svc.h>
-#include <sip_svc/sip_svc_agilex_mailbox.h>
-#include <sip_svc/sip_svc_agilex_smc.h>
+#include <zephyr/zephyr.h>
+#include <zephyr/sip_svc/sip_svc.h>
+#include <zephyr/sip_svc/sip_svc_agilex_mailbox.h>
+#include <zephyr/sip_svc/sip_svc_agilex_smc.h>
 
 bool sip_svc_plat_func_id_valid(uint32_t command, uint32_t func_id)
 {
