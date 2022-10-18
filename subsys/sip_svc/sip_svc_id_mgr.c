@@ -7,7 +7,7 @@
  * clients and transactions.
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sip_svc/sip_svc.h>
 #include "sip_svc_id_mgr.h"
 
