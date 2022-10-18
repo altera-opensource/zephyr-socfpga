@@ -6,7 +6,7 @@
  * Intel SoC FPGA platform specific functions used by Arm SiP Services.
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sip_svc/sip_svc.h>
 #include <zephyr/sip_svc/sip_svc_agilex_mailbox.h>
 #include <zephyr/sip_svc/sip_svc_agilex_smc.h>

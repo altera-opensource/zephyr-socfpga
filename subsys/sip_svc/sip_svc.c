@@ -108,7 +108,7 @@
  */
 
 #include <string.h>
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/sip_svc/sip_svc.h>
 #include "sip_svc_id_mgr.h"
@@ -615,8 +615,8 @@ static int sip_svc_async_response_handler(struct sip_svc_controller *ctrl)
 				      trans_id);
 
 	/* Get caller provided memory space to put response */
-	data_addr = (((uint64_t) trans_id_item->arg2) |
-		     ((uint64_t) trans_id_item->arg3) << 32);
+	data_addr = (((uint64_t) trans_id_item->arg2 << 32) |
+		     (uint64_t) trans_id_item->arg3);
 
 	/* Check caller provided memory space to avoid overflow */
 	if (data_size > ((size_t) trans_id_item->arg4))
@@ -717,8 +717,8 @@ int sip_svc_send(struct sip_svc_controller *ctrl,
 		if (sip_svc_id_map_insert_item(ctrl->trans_id_map,
 			trans_id,
 			(void *)cb,
-			(void *)(request->resp_data_addr & 0xFFFFFFFF),
 			(void *)((request->resp_data_addr >> 32) & 0xFFFFFFFF),
+			(void *)(request->resp_data_addr & 0xFFFFFFFF),
 			(void *)(uint64_t)request->resp_data_size,
 			request->priv_data,
 			(void *)(uint64_t)c_idx) != 0) {
