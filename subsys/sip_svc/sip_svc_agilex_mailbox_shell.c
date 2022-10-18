@@ -6,7 +6,7 @@
  * A mailbox client command shell on sip_svc service to communicate with SDM.
  */
 
-#include <zephyr/zephyr.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sip_svc/sip_svc.h>
 #include <zephyr/sip_svc/sip_svc_agilex_mailbox.h>
 #include <zephyr/sip_svc/sip_svc_agilex_smc.h>
@@ -183,31 +183,31 @@ static void cmd_send_callback(uint32_t c_token, char *res, int size)
 
 	uint32_t *resp_data;
 	uint32_t resp_len;
-	uint32_t i;
+	volatile uint32_t i;
 
-	printk("\n\rsip_svc send command callback\n");
+	shell_print(sh, "\n\rsip_svc send command callback\n");
 
 	if ((size_t)size != sizeof(struct sip_svc_response)) {
-		shell_error(sh,"Invalid response size (%d), expects (%ld)",
+		shell_error(sh, "Invalid response size (%d), expects (%ld)",
 			size, sizeof(struct sip_svc_response));
 		return;
 	}
 
-	shell_print(sh,"\theader=%08x\n", response->header);
-	shell_print(sh,"\ta0=%016lx\n", response->a0);
-	shell_print(sh,"\ta1=%016lx\n", response->a1);
-	shell_print(sh,"\ta2=%016lx\n", response->a2);
-	shell_print(sh,"\ta3=%016lx\n", response->a3);
-	shell_print(sh,"\tresponse data=\n");
+	shell_print(sh, "\theader=%08x\n", response->header);
+	shell_print(sh, "\ta0=%016lx\n", response->a0);
+	shell_print(sh, "\ta1=%016lx\n", response->a1);
+	shell_print(sh, "\ta2=%016lx\n", response->a2);
+	shell_print(sh, "\ta3=%016lx\n", response->a3);
+	shell_print(sh, "\tresponse data=\n");
 
 	resp_data = (uint32_t *)response->resp_data_addr;
 	resp_len = response->resp_data_size / 4;
 	if (resp_data && resp_len) {
 		for (i = 0; i < resp_len ; i++) {
-			shell_print(sh,"\t\t[%4d] %08x\n", i, resp_data[i]);
+			shell_print(sh, "\t\t[%4d] %08x\n", i, resp_data[i]);
 		}
 	} else {
-		shell_error(sh,"\t\tInvalid addr (%p) or len (%d)\n",
+		shell_error(sh, "\t\tInvalid addr (%p) or len (%d)\n",
 		       resp_data, resp_len);
 	}
 
@@ -215,7 +215,7 @@ static void cmd_send_callback(uint32_t c_token, char *res, int size)
 	 * the command data memory space had been freed by sip_svc service.
 	 */
 	if (response->resp_data_addr) {
-		shell_print(sh,"\tFree response memory %p\n",
+		shell_print(sh, "\tResponse memory %p is freed\n",
 		       (char *)response->resp_data_addr);
 		k_free((char *)response->resp_data_addr);
 	}
@@ -274,7 +274,7 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 	struct sip_svc_request request;
 	uint32_t trans_id;
 	uint32_t cmd_size = 0;
-	static struct private_data priv;
+	struct private_data *priv = NULL;
 	char *cmd_addr;
 	char *resp_addr;
 	int err;
@@ -295,9 +295,18 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 		shell_error(sh, "Fail to allocate response memory");
 		return -ENOMEM;
 	}
+	shell_print(sh, "\tResponse memory %p\n", (char *)resp_addr);
 
-	k_sem_init(&(priv.semaphore),0,1);
-	priv.sh = sh;
+	priv = (struct private_data *)k_malloc(sizeof(struct private_data));
+	if (!priv) {
+		k_free(cmd_addr);
+		k_free(resp_addr);
+		shell_error(sh, "Fail to allocate private variable memory");
+		return -ENOMEM;
+	}
+
+	k_sem_init(&(priv->semaphore), 0, 1);
+	priv->sh = sh;
 
 	request.header = SIP_SVC_PROTO_HEADER(SIP_SVC_PROTO_CMD_ASYNC, 0);
 	request.a0 = SMC_FUNC_ID_MAILBOX_SEND_COMMAND;
@@ -310,7 +319,7 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 	request.a7 = 0;
 	request.resp_data_addr = (uint64_t)resp_addr;
 	request.resp_data_size = SIP_SVP_MB_MAX_WORD_SIZE * 4;
-	request.priv_data = (void *)&priv;
+	request.priv_data = (void *)priv;
 
 	trans_id = sip_svc_send(mb_smc_ctrl, mb_c_token, (uint8_t *)&request,
 				sizeof(struct sip_svc_request),
@@ -320,10 +329,11 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 		shell_error(sh, "Mailbox send fail (no open or no free trans_id)");
 		k_free(cmd_addr);
 		k_free(resp_addr);
+		k_free(priv);
 		err = -EBUSY;
 	} else {
 		/*wait for callback*/
-		k_sem_take(&(priv.semaphore),K_FOREVER);
+		k_sem_take(&(priv->semaphore), K_FOREVER);
 		shell_print(sh, "Mailbox send success: trans_id %d", trans_id);
 		err = 0;
 	}
