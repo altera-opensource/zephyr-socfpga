@@ -6,10 +6,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <zephyr.h>
-#include <device.h>
-#include <drivers/watchdog.h>
-#include <sys/printk.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/watchdog.h>
+#include <zephyr/sys/printk.h>
 #include <stdbool.h>
 
 #if DT_HAS_COMPAT_STATUS_OKAY(snps_designware_watchdog)
