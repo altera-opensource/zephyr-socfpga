@@ -7,7 +7,6 @@
 #define DT_DRV_COMPAT snps_designware_watchdog
 
 #include <string.h>
-#include <soc.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/watchdog.h>
 #include <zephyr/drivers/clock_control.h>
@@ -41,7 +40,7 @@ struct wdt_dw_config {
 	DEVICE_MMIO_ROM;
 	uint32_t clk_rate;
 	const struct device *clock_dev;
-	uint32_t clkid;
+	clock_control_subsys_t clkid;
 	struct reset_dt_spec reset_spec;
 	uint32_t wdt_rmod;
 	void (*irq_config_func)(const struct device *dev);
@@ -180,8 +179,12 @@ static int wdt_dw_init(const struct device *dev)
 			return -EINVAL;
 		}
 
-		clock_control_get_rate(dev_cfg->clock_dev, (clock_control_subsys_t) &dev_cfg->clkid,
-			   &dev_data->clk_rate);
+		ret = clock_control_get_rate(dev_cfg->clock_dev, dev_cfg->clkid,
+					&dev_data->clk_rate);
+
+		if (ret != 0) {
+			return ret;
+		}
 	}
 
 	/* Reset Watchdog */
@@ -236,12 +239,12 @@ static const struct wdt_driver_api wdt_api = {
 			( \
 				.clk_rate = DT_INST_PROP(inst, clock_frequency), \
 				.clock_dev = NULL, \
-				.clkid = 0, \
+				.clkid = (clock_control_subsys_t)0, \
 			), \
 			( \
 				.clk_rate = 0, \
-				.clock_dev = DEVICE_DT_GET(DT_INST_PHANDLE(inst, clocks)), \
-				.clkid = DT_INST_PHA_BY_IDX(inst, clocks, 0, clkid), \
+				.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(inst)), \
+				.clkid = (clock_control_subsys_t)DT_INST_CLOCKS_CELL(inst, clkid), \
 			) \
 		)
 
