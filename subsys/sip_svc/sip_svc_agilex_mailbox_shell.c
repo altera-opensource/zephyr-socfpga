@@ -22,64 +22,6 @@ struct private_data {
 static struct sip_svc_controller *mb_smc_ctrl;
 static uint32_t mb_c_token = SIP_SVC_ID_INVALID;
 
-
-static int hex_str_to_uint(const struct shell *sh, const char *hex_str,
-			     uint32_t size, uint64_t *hex_val)
-{
-	uint32_t offset = 0;
-	uint64_t half;
-	char c;
-	int len;
-	int i;
-
-	if (!hex_str || !hex_val) {
-		shell_error(sh, "Invalid pointer when parsing hex");
-		return -EINVAL;
-	}
-
-	if (size & 0xF) {
-		shell_error(sh, "Hex size must be 4 bits aligned");
-		return -EINVAL;
-	}
-
-	len = (int)(strlen(hex_str));
-
-	if (len > (size / 4) || len > 16) {
-		shell_error(sh, "Hex %s too long, expected length is %d",
-			    hex_str, size / 4);
-		return -EOVERFLOW;
-	}
-
-	*hex_val = 0;
-	for (i = len - 1; i >= 0; i--) {
-		c = hex_str[i];
-
-		if (c >= '0' && c <= '9')
-			half = (uint8_t)(c - '0');
-		else if (c == 'A' || c == 'a')
-			half = 0xa;
-		else if (c == 'B' || c == 'b')
-			half = 0xb;
-		else if (c == 'C' || c == 'c')
-			half = 0xc;
-		else if (c == 'D' || c == 'd')
-			half = 0xd;
-		else if (c == 'E' || c == 'e')
-			half = 0xe;
-		else if (c == 'F' || c == 'f')
-			half = 0xf;
-		else {
-			shell_error(sh, "Found unrecognized hex character '%c'", c);
-			return -EFAULT;
-		}
-
-		*hex_val |= (half & 0xF) << offset;
-		offset += 4;
-	}
-
-	return 0;
-}
-
 static int cmd_reg(const struct shell *sh, size_t argc, char **argv)
 {
 	int err;
@@ -183,7 +125,7 @@ static void cmd_send_callback(uint32_t c_token, char *res, int size)
 
 	uint32_t *resp_data;
 	uint32_t resp_len;
-	volatile uint32_t i;
+	uint32_t i;
 
 	shell_print(sh, "\n\rsip_svc send command callback\n");
 
@@ -214,10 +156,10 @@ static void cmd_send_callback(uint32_t c_token, char *res, int size)
 	/* Client only responsible to free the response data memory space,
 	 * the command data memory space had been freed by sip_svc service.
 	 */
-	if (response->resp_data_addr) {
-		shell_print(sh, "\tResponse memory %p is freed\n",
-		       (char *)response->resp_data_addr);
-		k_free((char *)response->resp_data_addr);
+	if (resp_data) {
+		shell_print(sh, "\t memory for response %p is freed\n",
+				(char *)resp_data);
+		k_free((char *)resp_data);
 	}
 
 	k_sem_give(&(priv->semaphore));
@@ -230,8 +172,8 @@ static int parse_mb_data(const struct shell *sh, char *hex_list,
 	uint64_t hex_val;
 	uint32_t *buffer;
 	uint32_t i = 0;
-	int err;
 	char *state;
+	char *ptr;
 
 	if (!hex_list || !cmd_addr || !cmd_size)
 		return -EINVAL;
@@ -252,11 +194,7 @@ static int parse_mb_data(const struct shell *sh, char *hex_list,
 			return -EOVERFLOW;
 		}
 
-		err = hex_str_to_uint(sh, hex_str, 32, &hex_val);
-		if (err) {
-			k_free(*cmd_addr);
-			return err;
-		}
+		hex_val = strtol(hex_str, &ptr, 16);
 
 		buffer[i] = hex_val;
 		i++;
@@ -272,12 +210,14 @@ static int parse_mb_data(const struct shell *sh, char *hex_list,
 static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 {
 	struct sip_svc_request request;
-	uint32_t trans_id;
+	int trans_id;
 	uint32_t cmd_size = 0;
 	struct private_data *priv = NULL;
 	char *cmd_addr;
 	char *resp_addr;
 	int err;
+	k_timeout_t timeout;
+	uint32_t msecond = 0;
 
 	if (!mb_smc_ctrl) {
 		shell_print(sh, "Mailbox client is not registered");
@@ -287,6 +227,10 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 	err = parse_mb_data(sh, argv[1], &cmd_addr, &cmd_size);
 	if (err < 0) {
 		return err;
+	}
+
+	if (argc > 2) {
+		msecond = (uint32_t)atoi(argv[2]);
 	}
 
 	resp_addr = k_malloc(SIP_SVP_MB_MAX_WORD_SIZE * 4);
@@ -308,6 +252,11 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 	k_sem_init(&(priv->semaphore), 0, 1);
 	priv->sh = sh;
 
+	if (!msecond)
+		timeout = K_FOREVER;
+	else
+		timeout = K_MSEC(msecond);
+
 	request.header = SIP_SVC_PROTO_HEADER(SIP_SVC_PROTO_CMD_ASYNC, 0);
 	request.a0 = SMC_FUNC_ID_MAILBOX_SEND_COMMAND;
 	request.a1 = 0;
@@ -325,18 +274,28 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 				sizeof(struct sip_svc_request),
 				cmd_send_callback);
 
-	if (trans_id == SIP_SVC_ID_INVALID) {
+	if (trans_id < 0) {
 		shell_error(sh, "Mailbox send fail (no open or no free trans_id)");
 		k_free(cmd_addr);
 		k_free(resp_addr);
-		k_free(priv);
 		err = -EBUSY;
 	} else {
 		/*wait for callback*/
-		k_sem_take(&(priv->semaphore), K_FOREVER);
-		shell_print(sh, "Mailbox send success: trans_id %d", trans_id);
-		err = 0;
+		if (!k_sem_take(&(priv->semaphore), timeout)) {
+			shell_print(sh, "Mailbox send success: trans_id %d", trans_id);
+			err = 0;
+		} else {
+			shell_error(sh, "Mailbox send timeout: trans_id %d", trans_id);
+			err = sip_svc_close(mb_smc_ctrl, mb_c_token);
+			if (err) {
+				shell_error(sh, "Mailbox client close fail (%d)", err);
+			} else {
+				shell_print(sh, "Mailbox client close success");
+			}
+			err = -ETIMEDOUT;
+		}
 	}
+	k_free(priv);
 
 	return err;
 }
@@ -351,8 +310,9 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 		      cmd_open, 1, 1),
 	SHELL_CMD_ARG(close, NULL, NULL,
 		      cmd_close, 1, 0),
-	SHELL_CMD_ARG(send, NULL, "<hex list, example (SYNC): \"2001 11223344 aabbccdd\">",
-		      cmd_send, 2, 0),
+	SHELL_CMD_ARG(send, NULL,
+			  "<hex list, example (SYNC): \"2001 11223344 aabbccdd\"> [<timeout_msec>]",
+		      cmd_send, 2, 1),
 	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(mailbox, &sub_mailbox, "Intel SoC FPGA SDM mailbox client commands",
