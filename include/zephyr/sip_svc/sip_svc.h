@@ -192,7 +192,7 @@ int sip_svc_close(struct sip_svc_controller *ctrl,
  * @param cb Callback. SMC/SVC return value will be passed to client via
  *           context in struct sip_svc_response format in callback.
  *
- * @return 0 on success, negative errno on failure.
+ * @return transaction id on success, negative errno on failure.
  */
 int sip_svc_send(struct sip_svc_controller *ctrl,
 		    uint32_t c_token,
@@ -208,7 +208,7 @@ int sip_svc_send(struct sip_svc_controller *ctrl,
  * @param ctrl Controller structure which provides Arm SiP services.
  * @param c_token Client's token
  *
- * @return address pointer to the client private data
+ * @return address pointer to the client private data or NULL
  */
 void *sip_svc_get_priv_data(struct sip_svc_controller *ctrl,
 			       uint32_t c_token);

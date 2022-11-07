@@ -301,6 +301,7 @@ int sip_svc_open(struct sip_svc_controller *ctrl, uint32_t c_token, uint32_t tim
 {
 	k_timeout_t k_timeout;
 	uint32_t c_idx;
+	int ret;
 
 	if (!ctrl)
 		return -EINVAL;
@@ -312,7 +313,8 @@ int sip_svc_open(struct sip_svc_controller *ctrl, uint32_t c_token, uint32_t tim
 	else
 		k_timeout = K_USEC(timeout_us);
 
-	if (k_mutex_lock(&ctrl->open_mutex, k_timeout) == 0) {
+	ret = k_mutex_lock(&ctrl->open_mutex, k_timeout);
+	if (ret == 0) {
 		if (k_mutex_lock(&ctrl->data_mutex, K_FOREVER) == 0) {
 			c_idx = sip_svc_get_c_idx(ctrl, c_token);
 
@@ -341,6 +343,8 @@ int sip_svc_open(struct sip_svc_controller *ctrl, uint32_t c_token, uint32_t tim
 
 			LOG_INF("Open the client channel 0x%x\n", ctrl->clients[c_idx].token);
 		}
+	} else {
+		return ret;
 	}
 
 	return 0;
@@ -408,7 +412,7 @@ static void sip_svc_callback(struct sip_svc_controller *ctrl,
 
 		c_idx = (uint64_t)trans_id_item->arg6;
 
-		ctrl->clients[c_idx].active_trans_cnt--;
+		--ctrl->clients[c_idx].active_trans_cnt;
 
 		if (ctrl->clients[c_idx].state == SIP_SVC_CLIENT_ST_OPEN &&
 		    trans_id_item->arg1) {
@@ -487,7 +491,7 @@ static int sip_svc_request_handler(struct sip_svc_controller *ctrl)
 	/* Increase active job count. Job means communication with
 	 * secure monitor firmware
 	 */
-	ctrl->active_job_cnt++;
+	++ctrl->active_job_cnt;
 
 	/* Trigger smc/svc */
 	LOG_DBG("before %s\n", ctrl->method);
@@ -538,9 +542,9 @@ static int sip_svc_request_handler(struct sip_svc_controller *ctrl)
 			(char *)&response,
 			sizeof(struct sip_svc_response));
 
-		ctrl->active_job_cnt--;
+		--ctrl->active_job_cnt;
 	} else {
-		ctrl->active_async_job_cnt++;
+		++ctrl->active_async_job_cnt;
 	}
 
 	return -EINPROGRESS;
@@ -625,8 +629,8 @@ static int sip_svc_async_response_handler(struct sip_svc_controller *ctrl)
 				      trans_id);
 
 	/* Get caller provided memory space to put response */
-	data_addr = (((uint64_t) trans_id_item->arg2 << 32) |
-		     (uint64_t) trans_id_item->arg3);
+	data_addr = (((uint64_t) trans_id_item->arg3) |
+		     ((uint64_t) trans_id_item->arg2) << 32);
 
 	/* Check caller provided memory space to avoid overflow */
 	if (data_size > ((size_t) trans_id_item->arg4))
@@ -651,6 +655,8 @@ static int sip_svc_async_response_handler(struct sip_svc_controller *ctrl)
 			    sizeof(struct sip_svc_response));
 
 	/* Check again is there any async busy job id */
+	--ctrl->active_job_cnt;
+	--ctrl->active_async_job_cnt;
 	if (ctrl->active_async_job_cnt == 0) {
 		LOG_INF("Async resp job queue is serviced\n");
 		return 0;
@@ -672,8 +678,8 @@ static void sip_svc_thread(void *ctrl_ptr, void *arg2, void *arg3)
 		ret_msgq = -EINPROGRESS;
 		ret_resp = -EINPROGRESS;
 		while (ret_msgq != 0 || ret_resp != 0) {
-			ret_msgq = sip_svc_request_handler(ctrl);
 			ret_resp = sip_svc_async_response_handler(ctrl);
+			ret_msgq = sip_svc_request_handler(ctrl);
 
 			/* sleep only when waiting for ASYNC responses*/
 			if (ret_msgq == 0 && ret_resp != 0) {
@@ -687,33 +693,33 @@ static void sip_svc_thread(void *ctrl_ptr, void *arg2, void *arg3)
 
 int sip_svc_send(struct sip_svc_controller *ctrl,
 		    uint32_t c_token,
-		    char *sip_svc_request,
+		    char *sip_svc_request_buffer,
 		    int size,
 		    sip_svc_cb_fn cb)
 {
 	struct sip_svc_request *request =
-		(struct sip_svc_request *)sip_svc_request;
+		(struct sip_svc_request *)sip_svc_request_buffer;
 	uint32_t trans_id = SIP_SVC_ID_INVALID;
 	uint32_t trans_idx = SIP_SVC_ID_INVALID;
 	uint32_t c_idx;
 
 	if (!ctrl)
-		return SIP_SVC_ID_INVALID;
+		return -EINVAL;
 
 	c_idx = sip_svc_get_c_idx(ctrl, c_token);
 	if (c_idx == SIP_SVC_ID_INVALID)
-		return SIP_SVC_ID_INVALID;
+		return -EINVAL;
 
 	if (ctrl->active_client_index != c_idx ||
 	    ctrl->clients[c_idx].state != SIP_SVC_CLIENT_ST_OPEN)
-		return SIP_SVC_ID_INVALID;
+		return -ESRCH;
 
-	if (!sip_svc_request || size != sizeof(struct sip_svc_request))
-		return SIP_SVC_ID_INVALID;
+	if (!sip_svc_request_buffer || size != sizeof(struct sip_svc_request))
+		return -EINVAL;
 
 	if (!sip_svc_plat_func_id_valid(SIP_SVC_PROTO_HEADER_GET_CODE(request->header),
 					request->a0))
-		return SIP_SVC_ID_INVALID;
+		return -EINVAL;
 
 	if (k_mutex_lock(&ctrl->data_mutex, K_FOREVER) == 0) {
 
@@ -722,7 +728,7 @@ int sip_svc_send(struct sip_svc_controller *ctrl,
 		if (trans_idx == SIP_SVC_ID_INVALID) {
 			LOG_ERR("Fail to allocate transaction id");
 			k_mutex_unlock(&ctrl->data_mutex);
-			return SIP_SVC_ID_INVALID;
+			return -ENOMEM;
 		}
 		trans_id = sip_svc_plat_format_trans_id(c_idx, trans_idx);
 
@@ -743,14 +749,13 @@ int sip_svc_send(struct sip_svc_controller *ctrl,
 			sip_svc_id_mgr_free(ctrl->clients[c_idx].trans_idx_pool,
 						trans_idx);
 			k_mutex_unlock(&ctrl->data_mutex);
-			return SIP_SVC_ID_INVALID;
+			return -ENOMSG;
 		}
 
 		/* Insert request to MSGQ */
 		LOG_INF("send command to msgq\n");
 		if (k_mutex_lock(&ctrl->req_msgq_mutex, K_FOREVER) == 0) {
-
-			if (k_msgq_put(&ctrl->req_msgq, sip_svc_request,
+			if (k_msgq_put(&ctrl->req_msgq, sip_svc_request_buffer,
 				K_NO_WAIT) != 0) {
 				LOG_ERR("Request msgq full\n");
 				sip_svc_id_map_remove_item(ctrl->trans_id_map, trans_id);
@@ -758,11 +763,11 @@ int sip_svc_send(struct sip_svc_controller *ctrl,
 							trans_idx);
 				k_mutex_unlock(&ctrl->req_msgq_mutex);
 				k_mutex_unlock(&ctrl->data_mutex);
-				return SIP_SVC_ID_INVALID;
+				return -ENOBUFS;
 			}
 			k_mutex_unlock(&ctrl->req_msgq_mutex);
 		}
-		ctrl->clients[c_idx].active_trans_cnt++;
+		++ctrl->clients[c_idx].active_trans_cnt;
 
 		if (!ctrl->tid) {
 			LOG_ERR("Thread not spawned during init");
@@ -770,13 +775,19 @@ int sip_svc_send(struct sip_svc_controller *ctrl,
 			sip_svc_id_mgr_free(ctrl->clients[c_idx].trans_idx_pool,
 						trans_idx);
 			k_mutex_unlock(&ctrl->data_mutex);
-			return SIP_SVC_ID_INVALID;
+			return -ESRCH;
 		}
 		LOG_INF("Wakeup sip_svc thread\n");
 		k_thread_resume(ctrl->tid);
 		k_mutex_unlock(&ctrl->data_mutex);
 	}
-	return trans_id;
+
+	/*additional check for an unsupported condition*/
+	if (((int)trans_id) < 0) {
+		return -ENOTSUP;
+	}
+
+	return (int)trans_id;
 }
 
 void *sip_svc_get_priv_data(struct sip_svc_controller *ctrl,
@@ -807,10 +818,10 @@ struct sip_svc_controller *sip_svc_get_controller(char *method)
 	struct sip_svc_controller *cnt = controller;
 
 	while (strlen(cnt->method) != 0) {
-		if (!strcmp(cnt->method, method)) {
+		if (!strncmp(cnt->method, method, SIP_SVC_NAME_LENGTH)) {
 			return cnt;
 		}
-		cnt++;
+		++cnt;
 	}
 	return NULL;
 }
@@ -898,7 +909,7 @@ static int sip_svc_init(const struct device *unused)
 					CONFIG_ARM_SIP_SVC_THREAD_STACK_SIZE,
 					sip_svc_thread, ctrl, NULL, NULL,
 					CONFIG_ARM_SIP_SVC_THREAD_PRIORITY,
-					0, K_NO_WAIT);
+					K_ESSENTIAL, K_NO_WAIT);
 
 		ctrl->active_client_index = SIP_SVC_ID_INVALID;
 		ctrl->active_job_cnt = 0;
