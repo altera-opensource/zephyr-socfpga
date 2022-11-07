@@ -285,9 +285,9 @@ int sip_svc_unregister(struct sip_svc_controller *ctrl, uint32_t c_token)
 			return -EBUSY;
 		}
 
-		if (ctrl->clients[c_idx].state == SIP_SVC_CLIENT_ST_OPEN) {
-			ctrl->active_client_index = SIP_SVC_ID_INVALID;
-			k_mutex_unlock(&ctrl->open_mutex);
+		if (ctrl->clients[c_idx].state != SIP_SVC_CLIENT_ST_IDLE) {
+			k_mutex_unlock(&ctrl->data_mutex);
+			return -ECANCELED;
 		}
 
 		LOG_INF("Unregister the client channel 0x%x\n", ctrl->clients[c_idx].token);
