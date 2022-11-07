@@ -117,3 +117,47 @@ uint32_t sip_svc_plat_get_error_code(struct arm_smccc_res *res)
 	else
 		return SIP_SVC_ID_INVALID;
 }
+
+int sip_svc_pre_close_action(struct sip_svc_controller *ctrl, uint32_t c_token)
+{
+	struct sip_svc_request request;
+	uint32_t cmd_size = sizeof(uint32_t);
+	int trans_id;
+
+	uint32_t *cmd_addr = (uint32_t *)k_malloc(cmd_size);
+
+	if (!cmd_addr) {
+		return -ENOMEM;
+	}
+
+	/**
+	 * In Intel Agilex SOC FPGA during client closure ,sip_svc will send a
+	 * mailbox CANCEL command for cleaning up any previous state of SDM.
+	 */
+	*cmd_addr = MAILBOX_CANCEL_COMMAND;
+
+	request.header = SIP_SVC_PROTO_HEADER(SIP_SVC_PROTO_CMD_ASYNC, 0);
+	request.a0 = SMC_FUNC_ID_MAILBOX_SEND_COMMAND;
+	request.a1 = 0;
+	request.a2 = (uint64_t)cmd_addr;
+	request.a3 = (uint64_t)cmd_size;
+	request.a4 = 0;
+	request.a5 = 0;
+	request.a6 = 0;
+	request.a7 = 0;
+	request.resp_data_addr = (uint64_t)NULL;
+	request.resp_data_size = 0;
+	request.priv_data = NULL;
+
+	/**
+	 * For mailbox CANCEL command we wont be doing any post processing
+	 * of response as client would have closed the channel by then.
+	 */
+	trans_id = sip_svc_send(ctrl, c_token, (uint8_t *)&request,
+				sizeof(struct sip_svc_request), NULL);
+
+	if (trans_id < 0)
+		return -ENOTSUP;
+	else
+		return 0;
+}
