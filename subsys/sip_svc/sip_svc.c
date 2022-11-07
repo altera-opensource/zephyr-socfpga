@@ -107,15 +107,16 @@
  *
  */
 
-#include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
+#include <zephyr/logging/log.h>
+
 #include <zephyr/sip_svc/sip_svc.h>
 #include "sip_svc_id_mgr.h"
 
-#define LOG_LEVEL CONFIG_ARM_SIP_SVC_LOG_LEVEL
-#include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(sip_svc);
+#include <string.h>
+
+LOG_MODULE_REGISTER(sip_svc, CONFIG_ARM_SIP_SVC_ARM64_LOG_LEVEL);
 
 __weak bool sip_svc_plat_func_id_valid(uint32_t command, uint32_t func_id)
 {
@@ -247,6 +248,7 @@ uint32_t sip_svc_register(struct sip_svc_controller *ctrl, void *priv_data)
 			ctrl->clients[c_idx].priv_data = priv_data;
 
 			k_mutex_unlock(&ctrl->data_mutex);
+			LOG_INF("Register the client channel 0x%x\n", ctrl->clients[c_idx].token);
 			return ctrl->clients[c_idx].token;
 		}
 		k_mutex_unlock(&ctrl->data_mutex);
@@ -283,6 +285,7 @@ int sip_svc_unregister(struct sip_svc_controller *ctrl, uint32_t c_token)
 			k_mutex_unlock(&ctrl->open_mutex);
 		}
 
+		LOG_INF("Unregister the client channel 0x%x\n", ctrl->clients[c_idx].token);
 		ctrl->clients[c_idx].id = SIP_SVC_ID_INVALID;
 		ctrl->clients[c_idx].state = SIP_SVC_CLIENT_ST_INVALID;
 		ctrl->clients[c_idx].priv_data = NULL;
@@ -335,6 +338,8 @@ int sip_svc_open(struct sip_svc_controller *ctrl, uint32_t c_token, uint32_t tim
 			ctrl->clients[c_idx].state = SIP_SVC_CLIENT_ST_OPEN;
 
 			k_mutex_unlock(&ctrl->data_mutex);
+
+			LOG_INF("Open the client channel 0x%x\n", ctrl->clients[c_idx].token);
 		}
 	}
 
@@ -367,6 +372,8 @@ int sip_svc_close(struct sip_svc_controller *ctrl, uint32_t c_token)
 
 			k_mutex_unlock(&ctrl->data_mutex);
 			k_mutex_unlock(&ctrl->open_mutex);
+
+			LOG_INF("Close the client channel 0x%x\n", ctrl->clients[c_idx].token);
 			return 0;
 		}
 		k_mutex_unlock(&ctrl->data_mutex);
@@ -387,6 +394,7 @@ static void sip_svc_callback(struct sip_svc_controller *ctrl,
 	if (!ctrl)
 		return;
 
+	LOG_INF("Got response for trans id 0x%x\n", trans_id);
 	if (k_mutex_lock(&ctrl->data_mutex, K_FOREVER) == 0) {
 		/* get trans id callback context from map */
 		trans_id_item = sip_svc_id_map_query_item(
@@ -409,6 +417,7 @@ static void sip_svc_callback(struct sip_svc_controller *ctrl,
 				ctrl->clients[c_idx].token,
 				sip_svc_response, size);
 		} else {
+			LOG_INF("Resp data is released as the client channel is closed\n");
 			/* free response memory space if
 			 * callback is skipped
 			 */
@@ -563,6 +572,7 @@ static int sip_svc_async_response_handler(struct sip_svc_controller *ctrl)
 
 	/* Return if no busy job id */
 	if (ctrl->active_async_job_cnt == 0) {
+		LOG_INF("Async resp job queue is empty\n");
 		return 0;
 	}
 
@@ -641,10 +651,10 @@ static int sip_svc_async_response_handler(struct sip_svc_controller *ctrl)
 			    sizeof(struct sip_svc_response));
 
 	/* Check again is there any async busy job id */
-	ctrl->active_job_cnt--;
-	ctrl->active_async_job_cnt--;
-	if (ctrl->active_async_job_cnt == 0)
+	if (ctrl->active_async_job_cnt == 0) {
+		LOG_INF("Async resp job queue is serviced\n");
 		return 0;
+	}
 
 	return -EINPROGRESS;
 }
@@ -670,6 +680,7 @@ static void sip_svc_thread(void *ctrl_ptr, void *arg2, void *arg3)
 				k_msleep(CONFIG_ARM_SIP_SVC_ASYNC_POLLING_DELAY);
 			}
 		}
+		LOG_INF("Suspend thread, all transactions are completed\n");
 		k_thread_suspend(ctrl->tid);
 	}
 }
@@ -736,11 +747,12 @@ int sip_svc_send(struct sip_svc_controller *ctrl,
 		}
 
 		/* Insert request to MSGQ */
+		LOG_INF("send command to msgq\n");
 		if (k_mutex_lock(&ctrl->req_msgq_mutex, K_FOREVER) == 0) {
 
 			if (k_msgq_put(&ctrl->req_msgq, sip_svc_request,
 				K_NO_WAIT) != 0) {
-				LOG_ERR("Request msgq full");
+				LOG_ERR("Request msgq full\n");
 				sip_svc_id_map_remove_item(ctrl->trans_id_map, trans_id);
 				sip_svc_id_mgr_free(ctrl->clients[c_idx].trans_idx_pool,
 							trans_idx);
@@ -760,6 +772,7 @@ int sip_svc_send(struct sip_svc_controller *ctrl,
 			k_mutex_unlock(&ctrl->data_mutex);
 			return SIP_SVC_ID_INVALID;
 		}
+		LOG_INF("Wakeup sip_svc thread\n");
 		k_thread_resume(ctrl->tid);
 		k_mutex_unlock(&ctrl->data_mutex);
 	}

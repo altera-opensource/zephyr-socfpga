@@ -15,6 +15,7 @@ if ARM_SIP_SVC_ARM64
 
 module = ARM_SIP_SVC_ARM64
 module-str = arm_sip_svc
+source "subsys/logging/Kconfig.template.log_config"
 
 config ARM_SIP_SVC_HAS_HVC_CALLS
 	bool "Enables HVC calls to EL2 layer"
