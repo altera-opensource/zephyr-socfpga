@@ -74,6 +74,11 @@ config ARM_SIP_SVC_MAX_ASYNC_RESP_SIZE
 	default 4096
 	depends on ARM_SIP_SVC_ARM64
 
+config ARM_SIP_SVC_ASYNC_POLLING_DELAY
+	int "Delay used for polling asynchronous jobs in milliseconds"
+	default 10
+	depends on ARM_SIP_SVC_ARM64
+
 config ARM_SIP_SVC_HAS_INTEL_SDM_MAILBOX_FIFO
 	bool "Support for SDM mailbox fifo in Intel SoC FPGA Agilex"
 	default n

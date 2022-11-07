@@ -664,6 +664,11 @@ static void sip_svc_thread(void *ctrl_ptr, void *arg2, void *arg3)
 		while (ret_msgq != 0 || ret_resp != 0) {
 			ret_msgq = sip_svc_request_handler(ctrl);
 			ret_resp = sip_svc_async_response_handler(ctrl);
+
+			/* sleep only when waiting for ASYNC responses*/
+			if (ret_msgq == 0 && ret_resp != 0) {
+				k_msleep(CONFIG_ARM_SIP_SVC_ASYNC_POLLING_DELAY);
+			}
 		}
 		k_thread_suspend(ctrl->tid);
 	}
