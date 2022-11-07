@@ -168,6 +168,11 @@ __weak uint32_t sip_svc_plat_get_error_code(struct arm_smccc_res *res)
 	return -ENOTSUP;
 }
 
+__weak int sip_svc_pre_close_action(struct sip_svc_controller *ctrl, uint32_t c_token)
+{
+	return 0;
+}
+
 #if CONFIG_ARM_SIP_SVC_HAS_HVC_CALLS
 static void __invoke_fn_hvc(unsigned long function_id,
 					  unsigned long arg0,
@@ -353,9 +358,15 @@ int sip_svc_open(struct sip_svc_controller *ctrl, uint32_t c_token, uint32_t tim
 int sip_svc_close(struct sip_svc_controller *ctrl, uint32_t c_token)
 {
 	uint32_t c_idx;
+	int pre_close_status;
 
 	if (!ctrl)
 		return -EINVAL;
+
+	pre_close_status = sip_svc_pre_close_action(ctrl, c_token);
+	if (pre_close_status != 0) {
+		return pre_close_status;
+	}
 
 	if (k_mutex_lock(&ctrl->data_mutex, K_FOREVER) == 0) {
 		c_idx = sip_svc_get_c_idx(ctrl, c_token);
