@@ -92,17 +92,13 @@ int sip_svc_plat_async_res_res(struct arm_smccc_res *res,
 {
 	uint32_t *resp = (uint32_t *)buf;
 
-	if (!res || !buf || !size || !trans_id) {
-		return -EINVAL;
-	}
+	__ASSERT((res && buf && size && trans_id), "invalid parameters\n");
 
-	if (res->a0 == SMC_STATUS_OKAY) {
+	if (((long)res->a0) <= SMC_STATUS_OKAY) {
 		/* Extract transaction id from mailbox response header */
 		*trans_id = SIP_SVC_MB_HEADER_GET_TRANS_ID(resp[0]);
 		/* The final length should includes both header and body */
 		*size = (SIP_SVC_MB_HEADER_GET_LENGTH(resp[0]) + 1) * 4;
-	} else if (res->a0 == SMC_STATUS_INVALID) {
-		return -ENOTSUP;
 	} else {
 		return -EINPROGRESS;
 	}

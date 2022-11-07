@@ -620,10 +620,6 @@ static int sip_svc_async_response_handler(struct sip_svc_controller *ctrl)
 			ctrl->async_resp_data, &data_size,
 			&trans_id);
 
-	if (ret == -ENOTSUP) {
-		return 0;
-	}
-
 	if (ret != 0) {
 		return -EINPROGRESS;
 	}
