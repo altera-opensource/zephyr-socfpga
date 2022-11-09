@@ -217,7 +217,6 @@
 		reg = <0xffc03000 0x100>;
 		clocks = <&clock INTEL_SOCFPGA_CLOCK_TIMER>;
 		resets = <&reset RSTMGR_SPTIMER0_RSTLINE>;
-		label = "timer0";
 		status = "disabled";
 	};
 
@@ -229,7 +228,6 @@
 		reg = <0xffc03100 0x100>;
 		clocks = <&clock INTEL_SOCFPGA_CLOCK_TIMER>;
 		resets = <&reset RSTMGR_SPTIMER1_RSTLINE>;
-		label = "timer1";
 		status = "disabled";
 	};
 
@@ -241,7 +239,6 @@
 		reg = <0xffd00000 0x100>;
 		clocks = <&clock INTEL_SOCFPGA_CLOCK_TIMER>;
 		resets = <&reset RSTMGR_L4SYSTIMER0_RSTLINE>;
-		label = "timer2";
 		status = "disabled";
 	};
 
@@ -253,7 +250,6 @@
 		reg = <0xffd00100 0x100>;
 		clocks = <&clock INTEL_SOCFPGA_CLOCK_TIMER>;
 		resets = <&reset RSTMGR_L4SYSTIMER1_RSTLINE>;
-		label = "timer3";
 		status = "disabled";
 	};
 };
