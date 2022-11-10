@@ -6,7 +6,7 @@ INTEL FPGA niosv_m
 Overview
 ********
 
-niosv_m board is based on Nios® V/m Hello World Example Design system and this complete system is consisted of following IP blocks:
+niosv_m board is based on Intel FPGA Design Store Nios® V/m Hello World Example Design system and this complete system is consisted of following IP blocks:
 
 .. code-block:: console
 
@@ -17,7 +17,7 @@ niosv_m board is based on Nios® V/m Hello World Example Design system and this 
 Generate hello world example design
 ===================================
 
-Please follow Nios® V/m processor example design section in Nios® V Embedded Processor Design Handbook to generate and build Nios® V/m processor example design system.
+Please follow Intel FPGA Design Store Nios® V/m processor Hello World Example Design to generate and build Nios® V/m processor example design system.
 Generated SRAM Object File .sof file will be used to create the Nios® V/m processor inside the FPGA device.
 
 Create Nios® V/m processor example design system
