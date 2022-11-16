@@ -185,6 +185,8 @@ static int wdt_dw_init(const struct device *dev)
 		if (ret != 0) {
 			return ret;
 		}
+	} else {
+		dev_data->clk_rate = dev_cfg->clk_rate;
 	}
 
 	/* Reset Watchdog */
