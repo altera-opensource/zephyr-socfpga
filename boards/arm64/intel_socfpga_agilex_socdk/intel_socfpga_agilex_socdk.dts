@@ -49,10 +49,6 @@
 	};
 };
 
-&sdmmc {
-	status = "okay";
-};
-
 &watchdog0 {
 	interrupt-parent = <&gic>;
 	interrupts = <GIC_SPI 117 IRQ_TYPE_LEVEL
@@ -69,6 +65,15 @@
 
 &watchdog2 {
 	status = "okay";
+};
+
+&sdmmc {
+	status = "okay";
+	mmc {
+	/*SD Disk Access */
+		compatible = "zephyr,sdmmc-disk";
+		status = "okay";
+	};
 };
 
 &watchdog3 {
