@@ -136,7 +136,7 @@ static int wdt_dw_feed(const struct device *dev, int channel_id)
 
 	ARG_UNUSED(channel_id);
 
-	sys_set_bits(reg_base + WDT_CRR_OFFSET, WDT_SW_RST);
+	sys_write32(WDT_SW_RST, reg_base + WDT_CRR_OFFSET);
 
 	return 0;
 }
