@@ -181,4 +181,6 @@ source "drivers/gpio/Kconfig.numicro"
 
 source "drivers/gpio/Kconfig.zephyr"
 
+source "drivers/gpio/Kconfig.altera"
+
 endif # GPIO
