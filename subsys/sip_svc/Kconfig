@@ -29,7 +29,7 @@ config ARM_SIP_SVC_HAS_SMC_CALLS
 
 config ARM_SIP_SVC_INIT_PRIORITY
 	int "Arm SiP service init function priority"
-	default 0
+	default 55
 	depends on ARM_SIP_SVC_ARM64
 
 config ARM_SIP_SVC_THREAD_STACK_SIZE
