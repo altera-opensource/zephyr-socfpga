@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Intel Corporation. All rights reserved.
+ * Copyright (c) 2022-2023, Intel Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -13,6 +13,9 @@
 #include <zephyr/shell/shell.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+
+#define SEC_TO_USEC		(1000000U)
 
 struct private_data {
 	struct k_sem semaphore;
@@ -74,8 +77,9 @@ static int cmd_unreg(const struct shell *sh, size_t argc, char **argv)
 
 static int cmd_open(const struct shell *sh, size_t argc, char **argv)
 {
-	uint32_t usecond = 0;
+	uint32_t seconds = 0;
 	int err;
+	char *endptr;
 
 	if (!mb_smc_ctrl) {
 		shell_print(sh, "Mailbox client is not registered");
@@ -83,10 +87,26 @@ static int cmd_open(const struct shell *sh, size_t argc, char **argv)
 	}
 
 	if (argc > 1) {
-		usecond = (uint32_t)atoi(argv[1]) * 1000000;
+		errno = 0;
+		seconds = (uint32_t)strtoul(argv[1], &endptr, 10);
+		if (errno == ERANGE) {
+			shell_error(sh, "out of range value");
+			return -ERANGE;
+		} else if (errno || endptr == argv[1] || *endptr) {
+			return -errno;
+		} else if (seconds >= 0) {
+			/*TODO: change seconds to useconds for shell application*/
+			/* convert seconds to useconds for sip_svc_open function */
+			if (seconds < (UINT32_MAX/SEC_TO_USEC)) {
+				seconds *= SEC_TO_USEC;
+			} else {
+				seconds = UINT32_MAX;
+				shell_error(sh, "Setting timeout value to %u", seconds);
+			}
+		}
 	}
 
-	err = sip_svc_open(mb_smc_ctrl, mb_c_token, usecond);
+	err = sip_svc_open(mb_smc_ctrl, mb_c_token, seconds);
 	if (err) {
 		shell_error(sh, "Mailbox client open fail (%d)", err);
 	} else {
@@ -169,11 +189,11 @@ static int parse_mb_data(const struct shell *sh, char *hex_list,
 			 char **cmd_addr, uint32_t *cmd_size)
 {
 	char *hex_str = hex_list;
-	uint64_t hex_val;
+	uint32_t hex_val;
 	uint32_t *buffer;
 	uint32_t i = 0;
 	char *state;
-	char *ptr;
+	char *endptr;
 
 	if (!hex_list || !cmd_addr || !cmd_size)
 		return -EINVAL;
@@ -193,8 +213,17 @@ static int parse_mb_data(const struct shell *sh, char *hex_list,
 			shell_error(sh, "Mailbox length too long");
 			return -EOVERFLOW;
 		}
-
-		hex_val = strtol(hex_str, &ptr, 16);
+		errno = 0;
+		hex_val = strtoul(hex_str, &endptr, 16);
+		if (errno == ERANGE) {
+			shell_error(sh, " Value is out of range value");
+			k_free(*cmd_addr);
+			return -ERANGE;
+		} else if (errno || endptr == hex_str || *endptr) {
+			k_free(*cmd_addr);
+			shell_error(sh, " Invalid argument");
+			return -EINVAL;
+		}
 
 		buffer[i] = hex_val;
 		i++;
@@ -214,9 +243,9 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 	uint32_t cmd_size = 0;
 	struct private_data *priv = NULL;
 	char *cmd_addr;
-	char *resp_addr;
+	char *resp_addr, *endptr;
 	int err;
-	k_timeout_t timeout;
+	k_timeout_t timeout = K_FOREVER;
 	uint32_t msecond = 0;
 
 	if (!mb_smc_ctrl) {
@@ -230,7 +259,17 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 	}
 
 	if (argc > 2) {
-		msecond = (uint32_t)atoi(argv[2]);
+		errno = 0;
+		msecond = (uint32_t)strtoul(argv[2], &endptr, 10);
+		if (errno == ERANGE) {
+			shell_error(sh, "Out of range value");
+			return -ERANGE;
+		} else if (errno || endptr == argv[2] || *endptr) {
+			shell_error(sh, "Invalid argument");
+			return -EINVAL;
+		} else if (msecond >= 0) {
+			timeout = K_MSEC(msecond);
+		}
 	}
 
 	resp_addr = k_malloc(SIP_SVP_MB_MAX_WORD_SIZE * 4);
@@ -251,11 +290,6 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 
 	k_sem_init(&(priv->semaphore), 0, 1);
 	priv->sh = sh;
-
-	if (!msecond)
-		timeout = K_FOREVER;
-	else
-		timeout = K_MSEC(msecond);
 
 	request.header = SIP_SVC_PROTO_HEADER(SIP_SVC_PROTO_CMD_ASYNC, 0);
 	request.a0 = SMC_FUNC_ID_MAILBOX_SEND_COMMAND;

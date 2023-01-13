@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Intel Corporation. All rights reserved.
+ * Copyright (c) 2022-2023, Intel Corporation. All rights reserved.
  *
  * SPDX-License-Identifier: Apache-2.0
  *
@@ -9,6 +9,9 @@
 #include <zephyr/shell/shell.h>
 #include <zephyr/sip_svc/sip_svc.h>
 #include <stdlib.h>
+#include <errno.h>
+
+#define SEC_TO_USEC		(1000000U)
 
 struct private_data {
 	struct k_sem semaphore;
@@ -56,16 +59,23 @@ static int cmd_reg(const struct shell *sh, size_t argc, char **argv)
 static int cmd_unreg(const struct shell *sh, size_t argc, char **argv)
 {
 	struct sip_svc_controller *ctrl;
-	uint64_t c_token;
+	uint32_t c_token;
 	int err;
-	char *ptr;
+	char *endptr;
 
 	err = parse_common_args(sh, argv, &ctrl);
 	if (err < 0) {
 		return err;
 	}
-
-	c_token = strtol(argv[2], &ptr, 16);
+	errno = 0;
+	c_token = strtoul(argv[2], &endptr, 16);
+	if (errno == ERANGE) {
+		shell_error(sh, "Out of range value");
+		return -ERANGE;
+	} else if (errno || endptr == argv[2] || *endptr) {
+		shell_error(sh, "Invalid argument");
+		return -errno;
+	}
 
 	err = sip_svc_unregister(ctrl, (uint32_t)c_token);
 	if (err) {
@@ -82,23 +92,46 @@ static int cmd_unreg(const struct shell *sh, size_t argc, char **argv)
 static int cmd_open(const struct shell *sh, size_t argc, char **argv)
 {
 	struct sip_svc_controller *ctrl;
-	uint64_t c_token;
-	uint32_t usecond = 0;
+	uint32_t c_token;
+	uint32_t seconds = 0;
 	int err;
-	char *ptr;
+	char *endptr;
 
 	err = parse_common_args(sh, argv, &ctrl);
 	if (err < 0) {
 		return err;
 	}
 
-	c_token = strtol(argv[2], &ptr, 16);
-
-	if (argc > 3) {
-		usecond = (uint32_t)atoi(argv[3]) * 1000000;
+	errno = 0;
+	c_token = strtoul(argv[2], &endptr, 16);
+	if (errno == ERANGE) {
+		shell_error(sh, "Out of range value");
+		return -ERANGE;
+	} else if (errno || endptr == argv[2] || *endptr) {
+		shell_error(sh, "Invalid argument");
+		return -errno;
 	}
 
-	err = sip_svc_open(ctrl, (uint32_t)c_token, usecond);
+	if (argc > 3) {
+		errno = 0;
+		seconds = (uint32_t)strtoul(argv[3], &endptr, 10);
+		if (errno == ERANGE) {
+			shell_error(sh, "Out of range value");
+			return -ERANGE;
+		} else if (errno || endptr == argv[3] || *endptr) {
+			shell_error(sh, "Invalid Argument");
+			return -EINVAL;
+		} else if (seconds >= 0) {
+			if (seconds < (UINT32_MAX/SEC_TO_USEC)) {
+				seconds *= SEC_TO_USEC;
+			} else {
+				seconds = UINT32_MAX;
+				shell_error(sh, "Setting timeout value to %u", seconds);
+			}
+		}
+	}
+
+	err = sip_svc_open(ctrl, (uint32_t)c_token, seconds);
 	if (err) {
 		shell_error(sh, "%s: open fail (%d): client token %08x",
 			    ctrl->method, err, (uint32_t)c_token);
@@ -113,16 +146,24 @@ static int cmd_open(const struct shell *sh, size_t argc, char **argv)
 static int cmd_close(const struct shell *sh, size_t argc, char **argv)
 {
 	struct sip_svc_controller *ctrl;
-	uint64_t c_token;
+	uint32_t c_token;
 	int err;
-	char *ptr;
+	char *endptr;
 
 	err = parse_common_args(sh, argv, &ctrl);
 	if (err < 0) {
 		return err;
 	}
 
-	c_token = strtol(argv[2], &ptr, 16);
+	errno = 0;
+	c_token = strtoul(argv[2], &endptr, 16);
+	if (errno == ERANGE) {
+		shell_error(sh, "Out of range value");
+		return -ERANGE;
+	} else if (errno || endptr == argv[2] || *endptr) {
+		shell_error(sh, "Invalid argument");
+		return -errno;
+	}
 
 	err = sip_svc_close(ctrl, (uint32_t)c_token);
 	if (err) {
@@ -164,55 +205,119 @@ static void cmd_send_callback(uint32_t c_token, char *res, int size)
 static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 {
 	struct sip_svc_controller *ctrl;
-	uint64_t c_token;
+	uint32_t c_token;
 	int trans_id;
 	struct sip_svc_request request;
 	struct private_data *priv = NULL;
+	char *endptr;
 	int err;
-	char *ptr;
 
 	err = parse_common_args(sh, argv, &ctrl);
 	if (err < 0)
 		return err;
 
+	errno = 0;
+	c_token = strtoul(argv[2], &endptr, 16);
+	if (errno == ERANGE) {
+		shell_error(sh, "Out of range value");
+		return -ERANGE;
+	} else if (errno || endptr == argv[2] || *endptr) {
+		shell_error(sh, "Invalid argument");
+		return -errno;
+	}
+
+	request.header = SIP_SVC_PROTO_HEADER(SIP_SVC_PROTO_CMD_SYNC, 0);
+
+	request.a0 = strtoul(argv[3], &endptr, 16);
+	if (errno == ERANGE) {
+		shell_error(sh, "Out of range value for a0");
+		return -ERANGE;
+	} else if (errno || endptr == argv[3] || *endptr) {
+		shell_error(sh, "Invalid argument for a0");
+		return -errno;
+	}
+
+	if (argc > 4) {
+		request.a1 = strtoul(argv[4], &endptr, 16);
+		if (errno == ERANGE) {
+			shell_error(sh, "Out of range value for a1");
+			return -ERANGE;
+		} else if (errno || endptr == argv[4] || *endptr) {
+			shell_error(sh, "Invalid argument for a1");
+			return -errno;
+		}
+	}
+
+	if (argc > 5) {
+		request.a2 = strtoul(argv[5], &endptr, 16);
+		if (errno == ERANGE) {
+			shell_error(sh, "Out of range value for a2");
+			return -ERANGE;
+		} else if (errno || endptr == argv[5] || *endptr) {
+			shell_error(sh, "Invalid argument for a2");
+			return -errno;
+		}
+	}
+
+	if (argc > 6) {
+		request.a3 = strtoul(argv[6], &endptr, 16);
+		if (errno == ERANGE) {
+			shell_error(sh, "Out of range value for a3");
+			return -ERANGE;
+		} else if (errno || endptr == argv[6] || *endptr) {
+			shell_error(sh, "Invalid argument for a3");
+			return -errno;
+		}
+	}
+
+	if (argc > 7) {
+		request.a4 = strtoul(argv[7], &endptr, 16);
+		if (errno == ERANGE) {
+			shell_error(sh, "Out of range value for a4");
+			return -ERANGE;
+		} else if (errno || endptr == argv[7] || *endptr) {
+			shell_error(sh, "Invalid argument for a4");
+			return -errno;
+		}
+	}
+
+	if (argc > 8) {
+		request.a5 = strtoul(argv[8], &endptr, 16);
+		if (errno == ERANGE) {
+			shell_error(sh, "Out of range value for a5");
+			return -ERANGE;
+		} else if (errno || endptr == argv[8] || *endptr) {
+			shell_error(sh, "Invalid argument for a5");
+			return -errno;
+		}
+	}
+
+	if (argc > 9) {
+		request.a6 = strtoul(argv[9], &endptr, 16);
+		if (errno == ERANGE) {
+			shell_error(sh, "Out of range value for a6");
+			return -ERANGE;
+		} else if (errno || endptr == argv[9] || *endptr) {
+			shell_error(sh, "Invalid argument for a6");
+			return -errno;
+		}
+	}
+
+	if (argc > 10) {
+		request.a7 = strtoul(argv[10], &endptr, 16);
+		if (errno == ERANGE) {
+			shell_error(sh, "Out of range value for a7");
+			return -ERANGE;
+		} else if (errno || endptr == argv[10] || *endptr) {
+			shell_error(sh, "Invalid argument for a7");
+			return -errno;
+		}
+	}
+
 	priv = (struct private_data *)k_malloc(sizeof(struct private_data));
 	if (!priv) {
 		shell_error(sh, "Fail to allocate private variable memory");
 		return -ENOMEM;
-	}
-
-	c_token = strtol(argv[2], &ptr, 16);
-
-	request.header = SIP_SVC_PROTO_HEADER(SIP_SVC_PROTO_CMD_SYNC, 0);
-
-	request.a0 = strtol(argv[3], &ptr, 16);
-
-	if (argc > 4) {
-		request.a1 = strtol(argv[4], &ptr, 16);
-	}
-
-	if (argc > 5) {
-		request.a2 = strtol(argv[5], &ptr, 16);
-	}
-
-	if (argc > 6) {
-		request.a3 = strtol(argv[6], &ptr, 16);
-	}
-
-	if (argc > 7) {
-		request.a4 = strtol(argv[7], &ptr, 16);
-	}
-
-	if (argc > 8) {
-		request.a5 = strtol(argv[8], &ptr, 16);
-	}
-
-	if (argc > 9) {
-		request.a6 = strtol(argv[9], &ptr, 16);
-	}
-
-	if (argc > 10) {
-		request.a7 = strtol(argv[10], &ptr, 16);
 	}
 
 	k_sem_init(&(priv->semaphore), 0, 1);
