@@ -68,4 +68,6 @@ source "drivers/clock_control/Kconfig.gd32"
 
 source "drivers/clock_control/Kconfig.agilex"
 
+source "drivers/clock_control/Kconfig.agilex5"
+
 endif # CLOCK_CONTROL
