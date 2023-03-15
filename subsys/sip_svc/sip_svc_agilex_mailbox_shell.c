@@ -15,7 +15,7 @@
 #include <string.h>
 #include <errno.h>
 
-#define SEC_TO_USEC		(1000000U)
+#define MAX_TIMEOUT_SECS	(10*60UL)
 
 struct private_data {
 	struct k_sem semaphore;
@@ -77,7 +77,7 @@ static int cmd_unreg(const struct shell *sh, size_t argc, char **argv)
 
 static int cmd_open(const struct shell *sh, size_t argc, char **argv)
 {
-	uint32_t seconds = 0;
+	unsigned long seconds = 0;
 	int err;
 	char *endptr;
 
@@ -88,20 +88,18 @@ static int cmd_open(const struct shell *sh, size_t argc, char **argv)
 
 	if (argc > 1) {
 		errno = 0;
-		seconds = (uint32_t)strtoul(argv[1], &endptr, 10);
+		seconds = strtoul(argv[1], &endptr, 10);
 		if (errno == ERANGE) {
 			shell_error(sh, "out of range value");
 			return -ERANGE;
 		} else if (errno || endptr == argv[1] || *endptr) {
 			return -errno;
 		} else if (seconds >= 0) {
-			/*TODO: change seconds to useconds for shell application*/
-			/* convert seconds to useconds for sip_svc_open function */
-			if (seconds < (UINT32_MAX/SEC_TO_USEC)) {
-				seconds *= SEC_TO_USEC;
+			if (seconds <= MAX_TIMEOUT_SECS) {
+				seconds = (USEC_PER_MSEC * seconds);
 			} else {
-				seconds = UINT32_MAX;
-				shell_error(sh, "Setting timeout value to %u", seconds);
+				seconds = MAX_TIMEOUT_SECS * USEC_PER_MSEC;
+				shell_error(sh, "Setting timeout value to %lu useconds", seconds);
 			}
 		}
 	}
@@ -246,7 +244,7 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 	char *resp_addr, *endptr;
 	int err;
 	k_timeout_t timeout = K_FOREVER;
-	uint32_t msecond = 0;
+	unsigned long msecond = 0;
 
 	if (!mb_smc_ctrl) {
 		shell_print(sh, "Mailbox client is not registered");
@@ -260,15 +258,18 @@ static int cmd_send(const struct shell *sh, size_t argc, char **argv)
 
 	if (argc > 2) {
 		errno = 0;
-		msecond = (uint32_t)strtoul(argv[2], &endptr, 10);
+		msecond = strtoul(argv[2], &endptr, 10);
 		if (errno == ERANGE) {
 			shell_error(sh, "Out of range value");
 			return -ERANGE;
 		} else if (errno || endptr == argv[2] || *endptr) {
 			shell_error(sh, "Invalid argument");
 			return -EINVAL;
-		} else if (msecond >= 0) {
+		} else if (msecond <= (MSEC_PER_SEC * MAX_TIMEOUT_SECS)) {
 			timeout = K_MSEC(msecond);
+		} else {
+			timeout = K_SECONDS(MAX_TIMEOUT_SECS);
+			shell_error(sh, "Setting timeout value to %lu seconds", MAX_TIMEOUT_SECS);
 		}
 	}
 

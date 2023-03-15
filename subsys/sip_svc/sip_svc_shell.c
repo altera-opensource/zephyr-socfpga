@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <errno.h>
 
-#define SEC_TO_USEC		(1000000U)
+#define MAX_TIMEOUT_SECS	(10*60UL)
 
 struct private_data {
 	struct k_sem semaphore;
@@ -93,7 +93,7 @@ static int cmd_open(const struct shell *sh, size_t argc, char **argv)
 {
 	struct sip_svc_controller *ctrl;
 	uint32_t c_token;
-	uint32_t seconds = 0;
+	unsigned long seconds = 0;
 	int err;
 	char *endptr;
 
@@ -114,7 +114,7 @@ static int cmd_open(const struct shell *sh, size_t argc, char **argv)
 
 	if (argc > 3) {
 		errno = 0;
-		seconds = (uint32_t)strtoul(argv[3], &endptr, 10);
+		seconds = strtoul(argv[3], &endptr, 10);
 		if (errno == ERANGE) {
 			shell_error(sh, "Out of range value");
 			return -ERANGE;
@@ -122,11 +122,11 @@ static int cmd_open(const struct shell *sh, size_t argc, char **argv)
 			shell_error(sh, "Invalid Argument");
 			return -EINVAL;
 		} else if (seconds >= 0) {
-			if (seconds < (UINT32_MAX/SEC_TO_USEC)) {
-				seconds *= SEC_TO_USEC;
+			if (seconds <= MAX_TIMEOUT_SECS) {
+				seconds = (USEC_PER_SEC * seconds);
 			} else {
-				seconds = UINT32_MAX;
-				shell_error(sh, "Setting timeout value to %u", seconds);
+				seconds = (USEC_PER_SEC * MAX_TIMEOUT_SECS);
+				shell_error(sh, "Setting timeout value to %lu", seconds);
 			}
 		}
 	}
