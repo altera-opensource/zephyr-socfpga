@@ -6,13 +6,10 @@ description: Synopsys Designware Watchdog timer
 
 compatible: "snps,designware-watchdog"
 
-include: base.yaml
+include: [base.yaml, reset-device.yaml]
 
 properties:
     reg:
-      required: true
-
-    resets:
       required: true
 
     clock-frequency:

@@ -186,23 +186,21 @@ static int wdt_dw_disable(const struct device *dev)
 	const struct wdt_dw_config *dev_cfg = DEV_CFG(dev);
 	int ret = 0;
 
+	/* Check if the Reset controller driver is supported */
+	if (dev_cfg->reset_spec.dev == NULL) {
+		LOG_ERR("Watchdog Disable not supported");
+		return -ENOTSUP;
+	}
+
 	if (!device_is_ready(dev_cfg->reset_spec.dev)) {
 		LOG_ERR("Reset controller device not ready");
 		return -ENODEV;
 	}
 
-	ret = reset_line_assert(dev_cfg->reset_spec.dev, dev_cfg->reset_spec.id);
+	ret = reset_line_toggle(dev_cfg->reset_spec.dev, dev_cfg->reset_spec.id);
 
 	if (ret != 0) {
-		LOG_ERR("Reset line assertion failed");
-		return ret;
-	}
-
-	ret = reset_line_deassert(dev_cfg->reset_spec.dev, dev_cfg->reset_spec.id);
-
-	if (ret != 0) {
-		LOG_ERR("Reset line de-assertion failed");
-		return ret;
+		LOG_ERR("Watchdog Disable/Reset failed");
 	}
 
 	return ret;
@@ -238,10 +236,12 @@ static int wdt_dw_init(const struct device *dev)
 	}
 
 	/* Reset Watchdog */
-	ret = wdt_dw_disable(dev);
+	if (dev_cfg->reset_spec.dev != NULL) {
+		ret = wdt_dw_disable(dev);
 
-	if (ret != 0) {
-		return ret;
+		if (ret != 0) {
+			return ret;
+		}
 	}
 
 	/* Register and enable WDT IRQ for this instance */
@@ -311,6 +311,9 @@ static const struct wdt_driver_api wdt_api = {
 		) \
 	)
 
+#define WDT_SNPS_DESIGNWARE_RESET_SPEC_INIT(inst) \
+	.reset_spec = RESET_DT_SPEC_INST_GET(inst),
+
 #define CREATE_WDT_DEVICE(_inst) \
 	\
 	IF_ENABLED(DT_INST_IRQ_HAS_CELL(_inst, irq), \
@@ -324,7 +327,8 @@ static const struct wdt_driver_api wdt_api = {
 		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(_inst)), \
 		WDT_SNPS_DESIGNWARE_CLOCK_RATE_INIT(_inst) \
 	\
-		.reset_spec = RESET_DT_SPEC_INST_GET(_inst), \
+		IF_ENABLED(DT_INST_NODE_HAS_PROP(_inst, resets), \
+			(WDT_SNPS_DESIGNWARE_RESET_SPEC_INIT(_inst))) \
 	\
 		IF_ENABLED(DT_INST_IRQ_HAS_CELL(_inst, irq), \
 			(WDT_SNPS_DESIGNWARE_IRQ_FUNC_INIT(_inst))) \
