@@ -1,8 +1,8 @@
-# Copyright (c) 2022, Intel Corporation
+# Copyright (c) 2022-2023 Intel Corporation
+
 # SPDX-License-Identifier: Apache-2.0
 
-description: |
-    Synopsys Designware watchdog timer. Intel SoC FPGA contains 4x Watchdog timers.
+description: Synopsys Designware Watchdog timer
 
 compatible: "snps,designware-watchdog"
 

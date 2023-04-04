@@ -1,22 +1,24 @@
 /*
- * Copyright (c) 2022, Intel Corporation. All rights reserved.
+ * Copyright (c) 2022-2023 Intel Corporation
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #define DT_DRV_COMPAT snps_designware_watchdog
 
-#include <string.h>
-#include <zephyr/device.h>
 #include <zephyr/drivers/watchdog.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/reset.h>
-#include <zephyr/kernel.h>
+
+#define LOG_LEVEL CONFIG_WDT_LOG_LEVEL
+#include <zephyr/logging/log.h>
+LOG_MODULE_REGISTER(wdt_snps_designware);
 
 #define DEV_CFG(_dev) ((const struct wdt_dw_config *)(_dev)->config)
 
 #define DEV_DATA(_dev) ((struct wdt_dw_data *const)(_dev)->data)
 
+/* Watchdog register offsets, Bit positions and Masks */
 #define WDT_CR_OFFSET			0x0
 #define WDT_CRR_OFFSET			0xC
 
@@ -28,54 +30,81 @@
 #define WDT_CR_RMOD_BITPOS		0x1
 #define WDT_CR_RMOD_MASK		0x2
 
+/* Value to be programmed in CRR register for feeding watchdog */
 #define WDT_SW_RST			0x76
 
+/* Maximum TOP value and cycles supported */
 #define WDT_DW_MAX_TOP			15
+#define WDT_DW_MAX_TOP_CYCLES		BIT(31)
 
+/* Watchdog timeout response modes */
 enum wdt_dw_rmod {
+	/* Generate a system reset */
 	WDT_DW_RMOD_RESET = 0,
+	/* First generate an interrupt and if it is not cleared
+	 * by the time a second timeout occurs then generate
+	 * a system reset.
+	 */
 	WDT_DW_RMOD_IRQ = 1
 };
 
+/* Device configurations */
 struct wdt_dw_config {
+	/* MMIO mapping for watchdog register base */
 	DEVICE_MMIO_ROM;
-	uint32_t clk_rate;
-	const struct device *clock_dev;
-	clock_control_subsys_t clkid;
-	struct reset_dt_spec reset_spec;
+	/* Watchdog timeout response mode configuration */
 	uint32_t wdt_rmod;
+	/* Watchdog clock frequency configuration */
+	uint32_t clk_rate;
+	/* Clock controller device instance */
+	const struct device *clock_dev;
+	/* Clock identifier for watchdog to be used by clock driver */
+	clock_control_subsys_t clkid;
+	/* Reset controller device configurartions */
+	struct reset_dt_spec reset_spec;
+	/* Watchdog interrupt configuration function pointer */
 	void (*irq_config_func)(const struct device *dev);
 };
 
+/* Driver data */
 struct wdt_dw_data {
+	/* MMIO mapping information for watchdog configurations */
 	DEVICE_MMIO_RAM;
+	/* Watchdog clock frequency read from clock driver during init */
 	uint32_t clk_rate;
+	/* Application callback function pointer */
 	wdt_callback_t cb;
 };
 
-static int wdt_dw_set_config(const struct device *dev, uint8_t options)
+static int wdt_dw_setup(const struct device *dev, uint8_t options)
 {
-	if (!dev) {
-		return -ENODEV;
-	}
+	ARG_UNUSED(options);
 
 	uintptr_t reg_base = DEVICE_MMIO_GET(dev);
 
-	ARG_UNUSED(options);
+	/* Check and Enable WDT */
+	if (sys_test_bit(reg_base + WDT_CR_OFFSET, WDT_CR_EN_BITPOS) != BIT(WDT_CR_EN_BITPOS)) {
+		sys_set_bit(reg_base + WDT_CR_OFFSET, WDT_CR_EN_BITPOS);
+	}
 
-	/* Enable WDT */
-	sys_set_bit(reg_base + WDT_CR_OFFSET, WDT_CR_EN_BITPOS);
+	return 0;
+}
+
+static int wdt_dw_feed(const struct device *dev, int channel_id)
+{
+	ARG_UNUSED(channel_id);
+
+	uintptr_t reg_base = DEVICE_MMIO_GET(dev);
+
+	sys_write32(WDT_SW_RST, reg_base + WDT_CRR_OFFSET);
 
 	return 0;
 }
 
 static int wdt_dw_install_timeout(const struct device *dev, const struct wdt_timeout_cfg *cfg)
 {
-	if (!dev) {
-		return -ENODEV;
-	}
-
 	if (!cfg) {
+		LOG_ERR("WDT timeout configuration missing");
 		return -ENODATA;
 	}
 
@@ -83,18 +112,31 @@ static int wdt_dw_install_timeout(const struct device *dev, const struct wdt_tim
 	struct wdt_dw_data *const dev_data = DEV_DATA(dev);
 
 	uintptr_t reg_base = DEVICE_MMIO_GET(dev);
-	uint64_t watchdog_clk = dev_data->clk_rate;
-	uint64_t period_ms = cfg->window.max;
-	uint64_t wdt_cycles = 0;
-	uint64_t top_init_cycles = ((period_ms * watchdog_clk) / 1000);
 	uint8_t top_val = WDT_DW_MAX_TOP;
 	uint8_t i = 0;
+	uint32_t wdt_cycles = 0;
+	uint64_t watchdog_clk = dev_data->clk_rate;
+	uint64_t top_init_cycles = 0;
 
 	if (cfg->flags != WDT_FLAG_RESET_SOC) {
+		LOG_ERR("Only SoC reset supported");
 		return -ENOTSUP;
 	}
 
-	if (cfg->window.min != 0U || cfg->window.max == 0U) {
+	if (cfg->window.min != 0U) {
+		LOG_ERR("Minimum timeout out of range");
+		return -EINVAL;
+	}
+
+	if (cfg->window.max == 0U) {
+		LOG_ERR("Maximum timeout out of range");
+		return -EINVAL;
+	}
+
+	top_init_cycles = ((cfg->window.max * watchdog_clk) / 1000);
+
+	if (top_init_cycles > WDT_DW_MAX_TOP_CYCLES) {
+		LOG_ERR("Maximum timeout out of range");
 		return -EINVAL;
 	}
 
@@ -114,57 +156,60 @@ static int wdt_dw_install_timeout(const struct device *dev, const struct wdt_tim
 	sys_write32(((top_val << 4) | top_val), reg_base + WDT_TORR_OFFSET);
 
 	if ((cfg->callback) && (dev_cfg->wdt_rmod == WDT_DW_RMOD_IRQ)) {
+		/* Configure wdt to interrupt mode.
+		 * Interrupt will be triggered on first timeout and
+		 * if wdt is not reloaded using wdt_feed() before next
+		 * timeout a watchdog system reset will be triggered.
+		 */
 		sys_set_bit(reg_base + WDT_CR_OFFSET, WDT_CR_RMOD_BITPOS);
 
 		dev_data->cb = cfg->callback;
 	} else {
+		/* Configure wdt to reset mode.
+		 * Watchdog system reset will be triggered after timeout.
+		 */
 		sys_clear_bit(reg_base + WDT_CR_OFFSET, WDT_CR_RMOD_BITPOS);
 
 		dev_data->cb = NULL;
 	}
 
-	return 0;
-}
-
-static int wdt_dw_feed(const struct device *dev, int channel_id)
-{
-	if (!dev) {
-		return -ENODEV;
+	/* Feed new TOP value into the watchdog counter if already activated. */
+	if (sys_test_bit(reg_base + WDT_CR_OFFSET, WDT_CR_EN_BITPOS) == BIT(WDT_CR_EN_BITPOS)) {
+		wdt_dw_feed(dev, 0);
 	}
-
-	uintptr_t reg_base = DEVICE_MMIO_GET(dev);
-
-	ARG_UNUSED(channel_id);
-
-	sys_write32(WDT_SW_RST, reg_base + WDT_CRR_OFFSET);
 
 	return 0;
 }
 
 static int wdt_dw_disable(const struct device *dev)
 {
-	if (!dev) {
-		return -ENODEV;
-	}
-
 	const struct wdt_dw_config *dev_cfg = DEV_CFG(dev);
+	int ret = 0;
 
 	if (!device_is_ready(dev_cfg->reset_spec.dev)) {
+		LOG_ERR("Reset controller device not ready");
 		return -ENODEV;
 	}
 
-	reset_line_assert(dev_cfg->reset_spec.dev, dev_cfg->reset_spec.id);
-	reset_line_deassert(dev_cfg->reset_spec.dev, dev_cfg->reset_spec.id);
+	ret = reset_line_assert(dev_cfg->reset_spec.dev, dev_cfg->reset_spec.id);
 
-	return 0;
+	if (ret != 0) {
+		LOG_ERR("Reset line assertion failed");
+		return ret;
+	}
+
+	ret = reset_line_deassert(dev_cfg->reset_spec.dev, dev_cfg->reset_spec.id);
+
+	if (ret != 0) {
+		LOG_ERR("Reset line de-assertion failed");
+		return ret;
+	}
+
+	return ret;
 }
 
 static int wdt_dw_init(const struct device *dev)
 {
-	if (!dev) {
-		return -ENODEV;
-	}
-
 	DEVICE_MMIO_MAP(dev, K_MEM_CACHE_NONE);
 
 	const struct wdt_dw_config *dev_cfg = DEV_CFG(dev);
@@ -177,13 +222,15 @@ static int wdt_dw_init(const struct device *dev)
 	 */
 	if (dev_cfg->clk_rate == 0U) {
 		if (!device_is_ready(dev_cfg->clock_dev)) {
-			return -EINVAL;
+			LOG_ERR("Clock controller device not ready");
+			return -ENODEV;
 		}
 
 		ret = clock_control_get_rate(dev_cfg->clock_dev, dev_cfg->clkid,
 					&dev_data->clk_rate);
 
 		if (ret != 0) {
+			LOG_ERR("Failed to get watchdog clock rate");
 			return ret;
 		}
 	} else {
@@ -202,14 +249,26 @@ static int wdt_dw_init(const struct device *dev)
 		dev_cfg->irq_config_func(dev);
 	}
 
-	return 0;
+	/* Enable watchdog if it needs to be enabled at boot.
+	 * Watchdog timer will be started with maximum timeout
+	 * that is the default value.
+	 */
+	if (!IS_ENABLED(CONFIG_WDT_DISABLE_AT_BOOT)) {
+		ret = wdt_dw_setup(dev, 0);
+
+		if (ret != 0) {
+			LOG_ERR("Failed to enable watchdog");
+		}
+	}
+
+	return ret;
 }
 
 static const struct wdt_driver_api wdt_api = {
-	.setup = wdt_dw_set_config,
+	.setup = wdt_dw_setup,
 	.disable = wdt_dw_disable,
 	.install_timeout = wdt_dw_install_timeout,
-	.feed = wdt_dw_feed
+	.feed = wdt_dw_feed,
 };
 
 #define WDT_SNPS_DESIGNWARE_IRQ_FUNC_DECLARE(inst) \
@@ -224,6 +283,7 @@ static const struct wdt_driver_api wdt_api = {
 	{ \
 		struct wdt_dw_data *const dev_data = DEV_DATA(dev); \
 		\
+		/* Interrupt is supposed to be cleared by the following feed operation. */ \
 		if (dev_data->cb) { \
 			dev_data->cb(dev, 0); \
 		} \
@@ -238,18 +298,18 @@ static const struct wdt_driver_api wdt_api = {
 	}
 
 #define WDT_SNPS_DESIGNWARE_CLOCK_RATE_INIT(inst) \
-		COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, clock_frequency), \
-			( \
-				.clk_rate = DT_INST_PROP(inst, clock_frequency), \
-				.clock_dev = NULL, \
-				.clkid = (clock_control_subsys_t)0, \
-			), \
-			( \
-				.clk_rate = 0, \
-				.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(inst)), \
-				.clkid = (clock_control_subsys_t)DT_INST_CLOCKS_CELL(inst, clkid), \
-			) \
-		)
+	COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, clock_frequency), \
+		( \
+			.clk_rate = DT_INST_PROP(inst, clock_frequency), \
+			.clock_dev = NULL, \
+			.clkid = (clock_control_subsys_t)0, \
+		), \
+		( \
+			.clk_rate = 0, \
+			.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(inst)), \
+			.clkid = (clock_control_subsys_t)DT_INST_CLOCKS_CELL(inst, clkid), \
+		) \
+	)
 
 #define CREATE_WDT_DEVICE(_inst) \
 	\
@@ -260,7 +320,7 @@ static const struct wdt_driver_api wdt_api = {
 		.cb = NULL, \
 	}; \
 	\
-	static struct wdt_dw_config wdt_dw_config_##_inst = { \
+	static const struct wdt_dw_config wdt_dw_config_##_inst = { \
 		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(_inst)), \
 		WDT_SNPS_DESIGNWARE_CLOCK_RATE_INIT(_inst) \
 	\
