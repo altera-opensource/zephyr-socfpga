@@ -6,17 +6,17 @@
  */
 
 #include <zephyr/drivers/clock_control.h>
-#include <zephyr/drivers/clock_control/clock_agilex_ll.h>
 #include <zephyr/dt-bindings/clock/intel_socfpga_clock.h>
 #include <zephyr/logging/log.h>
 
+#include "clock_control_agilex_ll.h"
+
 #define DT_DRV_COMPAT intel_agilex_clock
 
-LOG_MODULE_REGISTER(clock_control, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
+LOG_MODULE_REGISTER(clock_control_agilex, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
 
 struct clock_control_config {
 	DEVICE_MMIO_ROM;
-	uintptr_t reg_base;
 };
 struct clock_control_data {
 	DEVICE_MMIO_RAM;
@@ -24,11 +24,6 @@ struct clock_control_data {
 
 static int clock_init(const struct device *dev)
 {
-	if (!dev) {
-		LOG_ERR("Intel Agilex clock driver failed to initialize!");
-		return -ENODEV;
-	}
-
 	DEVICE_MMIO_MAP(dev, K_MEM_CACHE_NONE);
 
 	/* Initialize the low layer clock driver */
@@ -39,14 +34,12 @@ static int clock_init(const struct device *dev)
 	return 0;
 }
 
-static int clock_get_rate(const struct device *dev,
-				clock_control_subsys_t sub_system,
-				uint32_t *rate)
+static int clock_get_rate(const struct device *dev, clock_control_subsys_t sub_system,
+			  uint32_t *rate)
 {
-
 	ARG_UNUSED(dev);
 
-	switch ((intptr_t) sub_system) {
+	switch ((intptr_t)sub_system) {
 	case INTEL_SOCFPGA_CLOCK_MPU:
 		*rate = get_mpu_clk();
 		break;
@@ -68,6 +61,7 @@ static int clock_get_rate(const struct device *dev,
 		break;
 
 	default:
+		LOG_ERR("Clock ID %ld is not supported\n", (intptr_t)sub_system);
 		return -ENOTSUP;
 	}
 
@@ -78,11 +72,11 @@ static const struct clock_control_driver_api clock_api = {
 	.get_rate = clock_get_rate
 };
 
-#define CLOCK_CONTROL_DEVICE(_inst)						\
+#define CLOCK_CONTROL_DEVICE(_inst)				\
 	\
 	static struct clock_control_data clock_control_data_##_inst; \
 	\
-	static struct clock_control_config clock_control_config_##_inst = { \
+	static const struct clock_control_config clock_control_config_##_inst = { \
 		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(_inst)), \
 	}; \
 	\

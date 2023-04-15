@@ -20,8 +20,8 @@ zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_NPCX                clock_cont
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_NRF                 clock_control_nrf.c)
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_NRF_DRIVER_CALIBRATION nrf_clock_calibration.c)
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_RV32M1_PCC          clock_control_rv32m1_pcc.c)
-zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_AGILEX              clock_agilex_ll.c)
-zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_AGILEX              clock_agilex.c)
+zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_AGILEX              clock_control_agilex_ll.c)
+zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_AGILEX              clock_control_agilex.c)
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_AGILEX5             clock_agilex5_ll.c)
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_AGILEX5             clock_agilex5.c)
 
