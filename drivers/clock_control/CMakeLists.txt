@@ -22,8 +22,8 @@ zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_NRF_DRIVER_CALIBRATION nrf_clo
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_RV32M1_PCC          clock_control_rv32m1_pcc.c)
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_AGILEX              clock_control_agilex_ll.c)
 zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_AGILEX              clock_control_agilex.c)
-zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_AGILEX5             clock_agilex5_ll.c)
-zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_AGILEX5             clock_agilex5.c)
+zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_AGILEX5             clock_control_agilex5_ll.c)
+zephyr_library_sources_ifdef(CONFIG_CLOCK_CONTROL_AGILEX5             clock_control_agilex5.c)
 
 if(CONFIG_CLOCK_CONTROL_STM32_CUBE)
   zephyr_library_sources_ifdef(CONFIG_CLOCK_STM32_MUX clock_stm32_mux.c)
