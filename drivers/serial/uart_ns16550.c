@@ -4,7 +4,7 @@
 
 /*
  * Copyright (c) 2010, 2012-2015 Wind River Systems, Inc.
- * Copyright (c) 2020-2022 Intel Corp.
+ * Copyright (c) 2020-2023 Intel Corp.
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -33,8 +33,12 @@
 #include <zephyr/sys/sys_io.h>
 #include <zephyr/spinlock.h>
 #include <zephyr/irq.h>
+#include <zephyr/drivers/reset.h>
 
 #include <zephyr/drivers/serial/uart_ns16550.h>
+#include <zephyr/logging/log.h>
+
+LOG_MODULE_REGISTER(uart_ns16550, CONFIG_UART_LOG_LEVEL);
 
 #define INST_HAS_PCP_HELPER(inst) DT_INST_NODE_HAS_PROP(inst, pcp) ||
 #define INST_HAS_DLF_HELPER(inst) DT_INST_NODE_HAS_PROP(inst, dlf) ||
@@ -239,6 +243,7 @@ struct uart_ns16550_device_config {
 #if DT_ANY_INST_ON_BUS_STATUS_OKAY(pcie)
 	struct pcie_dev *pcie;
 #endif
+	struct reset_dt_spec reset_spec;
 };
 
 /** Device data structure */
@@ -500,6 +505,32 @@ static int uart_ns16550_config_get(const struct device *dev,
 #endif /* CONFIG_UART_USE_RUNTIME_CONFIGURE */
 
 /**
+ * @brief Toggle the reset UART line
+ *
+ * This routine is called to bring UART IP out of reset state.
+ *
+ * @param reset_spec Reset controller device configuration struct
+ *
+ * @return 0 if successful, failed otherwise
+ */
+static int uart_reset_config(const struct reset_dt_spec *reset_spec)
+{
+	int ret = 0;
+
+	if (!device_is_ready(reset_spec->dev)) {
+		LOG_ERR("Reset controller device is not ready");
+		return -ENODEV;
+	}
+
+	ret = reset_line_toggle(reset_spec->dev, reset_spec->id);
+	if (ret != 0) {
+		LOG_ERR("UART toggle reset line failed");
+	}
+
+	return ret;
+}
+
+/**
  * @brief Initialize individual UART port
  *
  * This routine is called to reset the chip in a quiescent state.
@@ -511,7 +542,16 @@ static int uart_ns16550_config_get(const struct device *dev,
 static int uart_ns16550_init(const struct device *dev)
 {
 	struct uart_ns16550_dev_data *data = dev->data;
+	const struct uart_ns16550_device_config *config = dev->config;
 	int ret;
+
+	/* Assert UART reset line if it is defined. */
+	if (config->reset_spec.dev != NULL) {
+		ret = uart_reset_config(&(config->reset_spec));
+		if (ret != 0) {
+			return ret;
+		}
+	}
 
 	ret = uart_ns16550_configure(dev, &data->uart_config);
 	if (ret != 0) {
@@ -519,8 +559,6 @@ static int uart_ns16550_init(const struct device *dev)
 	}
 
 #ifdef CONFIG_UART_INTERRUPT_DRIVEN
-	const struct uart_ns16550_device_config *config = dev->config;
-
 	config->irq_config_func(dev);
 #endif
 
@@ -1127,6 +1165,9 @@ static const struct uart_driver_api uart_ns16550_driver_api = {
 #define DEV_DATA_DLF_INIT(n) \
 	_CONCAT(DEV_DATA_DLF, DT_INST_NODE_HAS_PROP(n, dlf))(n)
 
+#define UART_RESET_FUNC_INIT(n) \
+	.reset_spec = RESET_DT_SPEC_INST_GET(n),
+
 #define UART_NS16550_DEVICE_INIT(n)                                                  \
 	UART_NS16550_IRQ_FUNC_DECLARE(n);                                            \
 	DEV_PCIE_DECLARE(n);                                                         \
@@ -1147,6 +1188,8 @@ static const struct uart_driver_api uart_ns16550_driver_api = {
 		DEV_CONFIG_PCP_INIT(n)                                               \
 		.reg_interval = (1 << DT_INST_PROP(n, reg_shift)),                   \
 		DEV_CONFIG_PCIE_INIT(n)                                              \
+		IF_ENABLED(DT_INST_NODE_HAS_PROP(n, resets),                         \
+			(UART_RESET_FUNC_INIT(n)))                                   \
 	};                                                                           \
 	static struct uart_ns16550_dev_data uart_ns16550_dev_data_##n = {            \
 		.uart_config.baudrate = DT_INST_PROP_OR(n, current_speed, 0),        \
