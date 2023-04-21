@@ -26,21 +26,12 @@
 	};
 };
 
-&gpio0 {
-	status = "okay";
-};
-
-&gpio1 {
-	status = "okay";
-};
-
 &uart0 {
 	status = "okay";
 	current-speed = <115200>;
 };
 
 &qspi {
-	status = "okay";
 	mt25qu02g@0 {
 		compatible = "micron,mt25qu02g";
 		reg = <0>;
@@ -49,69 +40,10 @@
 	};
 };
 
-&watchdog0 {
-	interrupt-parent = <&gic>;
-	interrupts = <GIC_SPI 117 IRQ_TYPE_LEVEL
-			IRQ_DEFAULT_PRIORITY>;
-	status = "okay";
-};
-
-&watchdog1 {
-	interrupt-parent = <&gic>;
-	interrupts = <GIC_SPI 118 IRQ_TYPE_LEVEL
-			IRQ_DEFAULT_PRIORITY>;
-	status = "okay";
-};
-
-&watchdog2 {
-	status = "okay";
-};
-
 &sdmmc {
-	status = "okay";
 	mmc {
 	/*SD Disk Access */
 		compatible = "zephyr,sdmmc-disk";
 		status = "okay";
 	};
-};
-
-&watchdog3 {
-	status = "okay";
-};
-
-&timer0 {
-	status = "okay";
-};
-
-&timer1 {
-	status = "okay";
-};
-
-&timer2 {
-	status = "okay";
-};
-
-&timer3 {
-	status = "okay";
-};
-
-&i2c0 {
-	status = "okay";
-};
-
-&i2c1 {
-	status = "okay";
-};
-
-&i2c2 {
-	status = "okay";
-};
-
-&i2c3 {
-	status = "okay";
-};
-
-&i2c4 {
-	status = "okay";
 };
