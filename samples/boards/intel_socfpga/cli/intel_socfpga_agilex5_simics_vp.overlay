@@ -16,10 +16,6 @@
 	status = "okay";
 };
 
-&qspi {
-	status = "okay";
-};
-
 &sdmmc {
 	status = "okay";
 };
@@ -60,10 +56,3 @@
 	status = "okay";
 };
 
-&dma0 {
-	status = "okay";
-};
-
-&dma1 {
-	status = "okay";
-};
