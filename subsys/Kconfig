@@ -78,6 +78,4 @@ source "subsys/rtio/Kconfig"
 
 source "subsys/zbus/Kconfig"
 
-source "subsys/sip_svc/Kconfig"
-
 endmenu
