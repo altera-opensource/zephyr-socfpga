@@ -1,8 +1,0 @@
-identifier: intel_socfpga_agilex5_simics_vp
-name: Intel SoC FPGA Agilex5 Simics Virtual Platform Universal
-type: simics
-arch: arm64
-ram: 8192
-toolchain:
-  - zephyr
-  - cross-compile

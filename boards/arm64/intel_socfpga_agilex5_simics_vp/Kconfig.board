@@ -1,6 +1,0 @@
-# Copyright (c) 2023 Intel Corporation
-# SPDX-License-Identifier: Apache-2.0
-
-config BOARD_INTEL_SOCFPGA_AGILEX5_SIMICS_VP
-	bool "Intel SoC FPGA Agilex5 Simics Virtual Platform Universal"
-	depends on SOC_AGILEX5
