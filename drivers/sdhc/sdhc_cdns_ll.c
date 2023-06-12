@@ -20,6 +20,7 @@ LOG_MODULE_REGISTER(sdhc_cdns_ll, CONFIG_SDHC_LOG_LEVEL);
 /* General define */
 #define SDHC_REG_MASK				0xFFFFFFFFU
 #define SD_HOST_BLOCK_SIZE			0x200
+#define CDNS_CSD_BYTE_MASK			0x000000FFU
 
 #define SDMMC_DMA_MAX_BUFFER_SIZE		(64 * 1024)
 #define CDNSMMC_ADDRESS_MASK			(CONFIG_SDHC_BUFFER_ALIGNMENT - 1)
@@ -738,6 +739,20 @@ static int sdhc_cdns_send_cmd(struct sdmmc_cmd *cmd, struct sdhc_data *data)
 			cmd->resp_data[1] = sys_read32(cdns_params.reg_base + SDHC_CDNS_SRS05);
 			cmd->resp_data[2] = sys_read32(cdns_params.reg_base + SDHC_CDNS_SRS06);
 			cmd->resp_data[3] = sys_read32(cdns_params.reg_base + SDHC_CDNS_SRS07);
+
+			/* 136-bit: RTS=01b, Response field R[127:8] - RESP3[23:0],
+			 * RESP2[31:0], RESP1[31:0], RESP0[31:0]
+			 * Subsystem expects 128 bits response but cadence SDHC sends
+			 * 120 bits response from R[127:8]. Bits manupulation to address
+			 * the correct responses for the 136 bit response type.
+			 */
+			cmd->resp_data[3] = ((cmd->resp_data[3] << 8) | ((cmd->resp_data[2] >> 24)
+				& CDNS_CSD_BYTE_MASK));
+			cmd->resp_data[2] = ((cmd->resp_data[2] << 8) | ((cmd->resp_data[1] >> 24)
+				& CDNS_CSD_BYTE_MASK));
+			cmd->resp_data[1] = ((cmd->resp_data[1] << 8) | ((cmd->resp_data[0] >> 24)
+				& CDNS_CSD_BYTE_MASK));
+			cmd->resp_data[0] = (cmd->resp_data[0] << 8);
 		}
 	}
 
