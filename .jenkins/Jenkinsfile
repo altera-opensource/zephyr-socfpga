@@ -4,7 +4,7 @@ def jenkinsSlaveContainerName = 'jnlp'
 def jenkinsSlaveImage = 'amr-registry-pre.caas.intel.com/pse-pswe-software-ba/jenkins/jnlp-slave'
 def buildNumber = currentBuild.number
 def branchName = env.BRANCH_NAME
-def targetBranch = 'main'
+def targetBranch = 'socfpga_v3.4-rp'
 containerImage =''
 
 def cloudName = 'kubernetes_embedded'
