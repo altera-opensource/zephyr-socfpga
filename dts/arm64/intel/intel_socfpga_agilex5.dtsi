@@ -513,4 +513,13 @@
 		core-clk = <200000000>;
 		status = "disabled";
 	};
+
+	/* Single Event Upsets(SEU) */
+	/* Intel Agilex Series specific Implementation */
+	seu:seu{
+		compatible = "intel,socfpga-seu";
+		interrupts = <GIC_SPI 7 IRQ_TYPE_LEVEL
+			      IRQ_DEFAULT_PRIORITY>;
+		interrupt-parent = <&gic>;
+	};
 };
