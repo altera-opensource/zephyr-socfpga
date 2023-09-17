@@ -3,15 +3,15 @@
 #
 # IO96B configuration options
 
-menuconfig IO96B
+menuconfig IO96B_INTEL_SOCFPGA
 	bool "in/out subsystem manager"
-	depends on DT_HAS_INTEL_IO96B_ENABLED
+	depends on (DT_HAS_INTEL_IO96B_ENABLED && EDAC_INTEL_SOCFPGA)
 	help
 	  Enable IO96B driver.
 
-if IO96B
+if IO96B_INTEL_SOCFPGA
 
-config SHELL_IO96B
+config SHELL_IO96B_INTEL_SOCFPGA
 	bool "IO96B Shell"
 	depends on SHELL
 	default n
@@ -21,5 +21,5 @@ config SHELL_IO96B
 module = IO96B
 module-str = io96b
 source "subsys/logging/Kconfig.template.log_config"
-source "drivers/io96b/Kconfig.intel_socfpga"
+
 endif #IO96B

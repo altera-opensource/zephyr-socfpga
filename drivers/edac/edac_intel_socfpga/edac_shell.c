@@ -8,15 +8,17 @@
 #include <stdlib.h>
 #include <zephyr/device.h>
 #include <zephyr/shell/shell.h>
-#include <zephyr/drivers/io96b.h>
+#include "edac.h"
+#include "io96b_ecc.h"
+#include "hps_ecc.h"
 
-#include "io96b_priv.h"
+#if CONFIG_IO96B_INTEL_SOCFPGA
 
 #define MAX_IO96B_INSTANCES          (0x2u)
 #define MAX_ECC_MODE_VALUE           (3u)
 #define MAX_ECC_TYPE_VALUE           (1u)
 #define IO96B_EN_SET_ECC_TYPE_OFFSET (2u)
-
+#define UNUSED_ARG                   (0u)
 static int get_io96_device(const struct shell *shell, char **argv, const struct device **dev,
 			   int *inst_id)
 {
@@ -70,7 +72,6 @@ static int cmd_io96b_info(const struct shell *shell, size_t argc, char **argv)
 	int err;
 	int inst_id = 0;
 	struct io96b_mb_req_resp req_resp;
-	const struct io96b_driver_api *api;
 
 	err = get_io96_device(shell, argv, &dev, &inst_id);
 	if (err) {
@@ -79,14 +80,12 @@ static int cmd_io96b_info(const struct shell *shell, size_t argc, char **argv)
 
 	shell_fprintf(shell, SHELL_NORMAL, "Show IO96B status\n");
 
-	api = dev->api;
-
 	memset(&req_resp, 0, sizeof(struct io96b_mb_req_resp));
 
 	req_resp.req.usr_cmd_type = CMD_GET_SYS_INFO;
 	req_resp.req.usr_cmd_opcode = GET_MEM_INTF_INFO;
 
-	err = api->mb_cmnd_send(dev, &req_resp);
+	err = io96b_mb_request(dev, &req_resp);
 
 	if (err) {
 		shell_error(shell, "IO96B mailbox get memory info failed\n");
@@ -132,7 +131,6 @@ static int cmd_io96b_ecc_en_set(const struct shell *shell, size_t argc, char **a
 	int err;
 	int inst_id = 0;
 	struct io96b_mb_req_resp req_resp;
-	const struct io96b_driver_api *api;
 	uint32_t ecc_mode;
 	uint32_t ecc_type;
 
@@ -145,8 +143,6 @@ static int cmd_io96b_ecc_en_set(const struct shell *shell, size_t argc, char **a
 	if (err) {
 		return err;
 	}
-
-	api = dev->api;
 
 	memset(&req_resp, 0, sizeof(struct io96b_mb_req_resp));
 
@@ -177,7 +173,7 @@ static int cmd_io96b_ecc_en_set(const struct shell *shell, size_t argc, char **a
 
 	req_resp.req.cmd_param_0 = (ecc_mode | (ecc_type << IO96B_EN_SET_ECC_TYPE_OFFSET));
 
-	err = api->mb_cmnd_send(dev, &req_resp);
+	err = io96b_mb_request(dev, &req_resp);
 	if (err) {
 		shell_error(shell, "IO96B mailbox ECC enable set failed\n");
 		return err;
@@ -193,7 +189,6 @@ static int cmd_io96b_ecc_en_status(const struct shell *shell, size_t argc, char 
 	int err;
 	int inst_id = 0;
 	struct io96b_mb_req_resp req_resp;
-	const struct io96b_driver_api *api;
 
 	if (argc < 2) {
 		shell_error(shell, "Invalid command arguments");
@@ -205,8 +200,6 @@ static int cmd_io96b_ecc_en_status(const struct shell *shell, size_t argc, char 
 		return err;
 	}
 
-	api = dev->api;
-
 	memset(&req_resp, 0, sizeof(struct io96b_mb_req_resp));
 
 	req_resp.req.usr_cmd_type = CMD_TRIG_CONTROLLER_OP;
@@ -216,7 +209,7 @@ static int cmd_io96b_ecc_en_status(const struct shell *shell, size_t argc, char 
 	}
 
 	req_resp.req.usr_cmd_opcode = ECC_ENABLE_STATUS;
-	err = api->mb_cmnd_send(dev, &req_resp);
+	err = io96b_mb_request(dev, &req_resp);
 
 	if (err) {
 		shell_error(shell, "IO96B mailbox check ECC enable status failed\n");
@@ -257,7 +250,6 @@ static int cmd_io96b_ecc_err_inject(const struct shell *shell, size_t argc, char
 	int err;
 	int inst_id = 0;
 	struct io96b_mb_req_resp req_resp;
-	const struct io96b_driver_api *api;
 
 	if (argc < 2) {
 		shell_error(shell, "Invalid command arguments");
@@ -268,8 +260,6 @@ static int cmd_io96b_ecc_err_inject(const struct shell *shell, size_t argc, char
 	if (err) {
 		return err;
 	}
-
-	api = dev->api;
 
 	memset(&req_resp, 0, sizeof(struct io96b_mb_req_resp));
 
@@ -285,11 +275,38 @@ static int cmd_io96b_ecc_err_inject(const struct shell *shell, size_t argc, char
 		shell_error(shell, "Invalid argument ecc err inject XOR bits ");
 		return err;
 	}
-	err = api->mb_cmnd_send(dev, &req_resp);
+	err = io96b_mb_request(dev, &req_resp);
 	if (err) {
 		shell_error(shell, "IO96B mailbox inject ECC error failed\n");
 		return err;
 	}
+
+	return 0;
+}
+
+static int cmd_io96b_ecc_get_sbe_cnt(const struct shell *shell, size_t argc, char **argv)
+{
+	const struct device *dev = NULL;
+	const struct edac_ecc_driver_api *api;
+	int err;
+	int inst_id = 0;
+	int sbe_count = 0;
+
+	if (argc < 2) {
+		shell_error(shell, "Invalid command arguments");
+		return -EINVAL;
+	}
+
+	err = get_io96_device(shell, argv, &dev, &inst_id);
+	if (err) {
+		return err;
+	}
+
+	api = dev->api;
+
+	sbe_count = api->get_sbe_ecc_err_cnt(dev, UNUSED_ARG);
+
+	shell_fprintf(shell, SHELL_NORMAL, "SBE error count = %d\n", sbe_count);
 
 	return 0;
 }
@@ -310,6 +327,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(
 	SHELL_CMD_ARG(err_inject, NULL,
 		      "Inject ECC error <inst id> <interface id> <xor check bits>\n",
 		      cmd_io96b_ecc_err_inject, 4, 0),
+	SHELL_CMD_ARG(get_sbe_count, NULL, "Get Single Bit Error count <inst id>\n",
+		      cmd_io96b_ecc_get_sbe_cnt, 2, 0),
 	SHELL_SUBCMD_SET_END /* Array terminated. */
 );
 
@@ -322,4 +341,118 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_io96b_cmds,
 			       SHELL_SUBCMD_SET_END /* Array terminated. */
 );
 
-SHELL_CMD_REGISTER(io96b, &sub_io96b_cmds, "IO96B information", NULL);
+#endif /* CONFIG_IO96B_INTEL_SOCFPGA */
+
+static int cmd_hps_ecc_err_inject(const struct shell *shell, size_t argc, char **argv)
+{
+#if DT_NODE_HAS_STATUS_INTERNAL(DT_NODELABEL(hps_ecc), okay)
+	const struct device *ecc_dev;
+	const struct edac_ecc_driver_api *api;
+	int ecc_block_id = 0;
+	int error_type = 0;
+	int err;
+
+	ecc_dev = DEVICE_DT_GET(DT_NODELABEL(hps_ecc));
+	if (!device_is_ready(ecc_dev)) {
+		shell_error(shell, "EDAC: System Manager ECC device is not ready");
+		return -ENODEV;
+	}
+	api = ecc_dev->api;
+	ecc_block_id = shell_strtoul(argv[1], 10, &err);
+	if ((err != 0) ||
+	    ((ecc_block_id < ECC_OCRAM) || (ecc_block_id > ECC_MODULE_MAX_INSTANCES) ||
+	     (ecc_block_id == ECC_DMA0))) {
+		shell_error(shell, "Invalid argument ecc error inject block id ");
+		return err;
+	}
+	error_type = shell_strtoul(argv[2], 10, &err);
+	if ((err != 0) || ((error_type != INJECT_DBE) && (error_type != INJECT_SBE))) {
+		shell_error(shell, "Invalid argument ecc error inject error type ");
+		return err;
+	}
+	api->inject_ecc_error(ecc_dev, ecc_block_id, error_type);
+
+#else
+	shell_error(shell, "HPS ECC device is not available");
+#endif
+	return 0;
+}
+
+static int cmd_hps_ecc_get_sbe_cnt(const struct shell *shell, size_t argc, char **argv)
+{
+#if DT_NODE_HAS_STATUS_INTERNAL(DT_NODELABEL(hps_ecc), okay)
+
+	const struct device *ecc_dev;
+	const struct edac_ecc_driver_api *api;
+	int ecc_block_id = 0;
+	int sbe_count = 0;
+	int err;
+
+	ecc_dev = DEVICE_DT_GET(DT_NODELABEL(hps_ecc));
+
+	if (!device_is_ready(ecc_dev)) {
+		shell_error(shell, "EDAC: System Manager ECC device is not ready");
+		return -ENODEV;
+	}
+
+	api = ecc_dev->api;
+
+	ecc_block_id = shell_strtoul(argv[1], 10, &err);
+	if ((err != 0) ||
+	    ((ecc_block_id < ECC_OCRAM) || (ecc_block_id > ECC_MODULE_MAX_INSTANCES) ||
+	     (ecc_block_id == ECC_DMA0))) {
+		shell_error(shell, "Invalid argument ecc error inject block id ");
+		return err;
+	}
+
+	sbe_count = api->get_sbe_ecc_err_cnt(ecc_dev, ecc_block_id);
+
+	shell_fprintf(shell, SHELL_NORMAL, "SBE error count = %d\n", sbe_count);
+#else
+	shell_error(shell, "HPS ECC device is not available");
+#endif
+	return 0;
+}
+
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_hps_ecc_cmds,
+			       SHELL_CMD_ARG(err_inject, NULL,
+					     "Inject ECC error <Block id> <error type>\n"
+					     "ECC block id  1  - ECC_OCRAM\n"
+					     "              2  - ECC_USB0_RAM0\n"
+					     "              3  - ECC_USB1_RAM0\n"
+					     "              4  - ECC_EMAC0_RX\n"
+					     "              5  - ECC_EMAC0_TX\n"
+					     "              6  - ECC_EMAC1_RX\n"
+					     "              7  - ECC_EMAC1_TX\n"
+					     "              8  - ECC_EMAC2_RX\n"
+					     "              9  - ECC_EMAC2_TX\n"
+					     "              10 - ECC_DMA0\n"
+					     "              11 - ECC_USB1_RAM1\n"
+					     "              12 - ECC_USB1_RAM2\n"
+					     "              13 - ECC_NAND\n"
+					     "              14 - ECC_SDMMCA\n"
+					     "              15 - ECC_SDMMCB\n"
+					     "              18 - ECC_DMA1\n"
+						 "              19 - ECC_QSPI\n"
+					     "error type 1 - DBE\n"
+					     "           2 - SBE\n",
+					     cmd_hps_ecc_err_inject, 3, 0),
+			       SHELL_CMD_ARG(get_sbe_count, NULL,
+					     "Get Single Bit Error count <Block id>\n",
+					     cmd_hps_ecc_get_sbe_cnt, 2, 0),
+			       SHELL_SUBCMD_SET_END /* Array terminated. */
+);
+
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_edac_cmds,
+#if CONFIG_IO96B_INTEL_SOCFPGA
+			       SHELL_CMD(io96b, &sub_io96b_cmds, "IO96B information", NULL),
+#endif /* CONFIG_IO96B_INTEL_SOCFPGA */
+			       SHELL_CMD(hps_ecc, &sub_hps_ecc_cmds,
+					 "HPS ECC information\n"
+					 "ECC related command err_inject",
+					 NULL),
+
+			       SHELL_SUBCMD_SET_END /* Array terminated. */
+);
+
+SHELL_CMD_REGISTER(edac, &sub_edac_cmds, "EDAC information", NULL);

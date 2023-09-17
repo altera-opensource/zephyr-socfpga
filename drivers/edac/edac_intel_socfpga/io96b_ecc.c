@@ -10,9 +10,9 @@
 
 #include <zephyr/sys/__assert.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/drivers/io96b.h>
 
-#include "io96b_priv.h"
+#include "edac.h"
+#include "io96b_ecc.h"
 
 LOG_MODULE_REGISTER(io96b, CONFIG_IO96B_LOG_LEVEL);
 
@@ -35,9 +35,11 @@ struct io96b_data {
 	DEVICE_MMIO_RAM;
 	uint8_t num_mem_intf;
 	uint8_t mem_intf_info[MAX_INTERFACES];
-	io96b_callback_t ecc_info_cb;
+	edac_callback_t ecc_info_cb;
 	struct io96b_ecc_info ecc_info;
 	void *cb_usr_data;
+	int sbe_count;
+	bool init_status;
 };
 /*
  * IO96B ECC driver configuration data
@@ -80,7 +82,7 @@ static inline int wait_for_cmnd_resp_ready(mem_addr_t reg_addr, uint32_t reg_mas
  *                progress or command timeout occurs
  *         -EINVAL if input values are invalid
  */
-static int io96b_mb_request(const struct device *dev, struct io96b_mb_req_resp *req_resp)
+int io96b_mb_request(const struct device *dev, struct io96b_mb_req_resp *req_resp)
 {
 	struct io96b_data *data = dev->data;
 	mem_addr_t ioaddr = (mem_addr_t)DEVICE_MMIO_GET(dev);
@@ -165,7 +167,7 @@ static int io96b_init(const struct device *dev)
 	ret = io96b_mb_request(dev, &req_resp);
 
 	if (ret) {
-		LOG_DBG("IO96B mailbox init failed");
+		LOG_DBG("%s : IO96B mailbox init failed", dev->name);
 		return ret;
 	}
 
@@ -173,7 +175,8 @@ static int io96b_init(const struct device *dev)
 			     IO96B_GET_MEM_INFO_NUM_USED_MEM_INF_MASK;
 
 	if (!data->num_mem_intf) {
-		LOG_DBG("IO96B mailbox init failed. Invalid number of memory instances");
+		LOG_DBG("%s : IO96B mailbox init failed. Invalid number of memory instances",
+			dev->name);
 		return -EIO;
 	}
 
@@ -194,6 +197,8 @@ static int io96b_init(const struct device *dev)
 	}
 	(config->irq_config_fn)(dev);
 	(config->irq_enable_fn)(dev, true);
+
+	data->init_status = true;
 
 	return 0;
 }
@@ -255,9 +260,10 @@ static int io96b_get_ecc_err_cnt(const struct device *dev)
 			cnt = ((config->max_producer_count_val - consumer_ctr) + producer_ctr);
 		}
 	} else {
-		LOG_ERR("ECC producer or consumer counter value out of range\nproducer counter = "
+		LOG_ERR("%s : ECC producer or consumer counter value out of range\nproducer "
+			"counter = "
 			"0x%x producer_ctr\n consumer counter = 0x%x",
-			producer_ctr, consumer_ctr);
+			dev->name, producer_ctr, consumer_ctr);
 		return -ERANGE;
 	}
 
@@ -277,20 +283,90 @@ static uint32_t io96b_read_ecc_errs_ovf(const struct device *dev)
 	return sys_read32(ioaddr + IO96B_ECC_RING_BUF_OVRFLOW_STATUS_OFFSET);
 }
 
+#if defined(CONFIG_EDAC_ERROR_INJECT)
+/**
+ * @brief To inject ecc error in a HPS peripheral RAM specified by ecc_modules_id
+ *
+ * @param dev			Pointer to the device structure for the driver.
+ * @param emif_id		EMIF interface ID
+ * @param error_type	error type DBE/SBE
+ *
+ * @return 0 Error injection is success
+ *			-EINVAL in case of invalid error_type parameter
+ *			-ENODEV in case of ECC is not initialised or disabled
+ */
+static int io96b_ecc_inject_error(const struct device *dev, uint32_t emif_id, uint32_t error_type)
+{
+	struct io96b_data *data = dev->data;
+	struct io96b_mb_req_resp req_resp;
+	int err;
+
+	if (data->init_status != true) {
+		LOG_DBG("%s : IO96B ECC not initialized or disabled", dev->name);
+		return -ENODEV;
+	}
+
+	memset(&req_resp, 0, sizeof(struct io96b_mb_req_resp));
+
+	req_resp.req.io96b_intf_inst_num = emif_id;
+	req_resp.req.usr_cmd_type = CMD_TRIG_CONTROLLER_OP;
+	req_resp.req.usr_cmd_opcode = ECC_INJECT_ERROR;
+	if (error_type == INJECT_DBE) {
+		req_resp.req.cmd_param_0 = ECC_DBE_SYNDROME;
+	} else {
+		req_resp.req.cmd_param_0 = ECC_SBE_SYNDROME;
+	}
+	err = io96b_mb_request(dev, &req_resp);
+	if (err) {
+		LOG_DBG("%s : IO96B inject ECC error failed", dev->name);
+		return err;
+	}
+	return 0;
+}
+#endif
+
+/**
+ * @brief to get the single bit error count
+ *
+ * @param dev		Pointer to the device structure for the driver instance.
+ * @param emif_id	EMIF interface ID
+ *
+ * @return  >= 0 Get SB error count success and count value equals to return value
+ *			-ENODEV in case of ECC is not initialised or disabled
+ */
+int io96b_get_sbe_ecc_error_cnt(const struct device *dev, uint32_t ecc_modules_id)
+{
+
+	ARG_UNUSED(ecc_modules_id);
+	struct io96b_data *data = dev->data;
+
+	if (data->init_status != true) {
+		LOG_DBG("%s : IO96B not initialized or disabled", dev->name);
+		return -ENODEV;
+	}
+
+	return data->sbe_count;
+}
+
 /** @brief Function to set a call back function for reporting ECC error.
  *  this call back will be called from io96b ISR if an ECC error occurs.
  *
- * @param dev Pointer to the device structure for the driver instance.
- * @param cb callback function
+ * @param dev		Pointer to the device structure for the driver instance.
+ * @param cb		callback function
  * @param user_data Pointer to the ECC info buffer.
  *
  * @return	0 if callback function set is success
  *			-EINVAL if invalid value passed for input parameter 'cb'.
  */
-static int io96b_set_ecc_error_cb(const struct device *dev, io96b_callback_t cb, void *user_data)
+static int io96b_set_ecc_error_cb(const struct device *dev, edac_callback_t cb, void *user_data)
 {
 	struct io96b_data *data = dev->data;
 	int ret = 0;
+
+	if (data->init_status != true) {
+		LOG_DBG("%s : IO96B ECC not initialized or disabled", dev->name);
+		return -ENODEV;
+	}
 
 	if (cb != NULL) {
 		data->ecc_info_cb = cb;
@@ -305,7 +381,11 @@ static void io96b_isr(const struct device *dev)
 {
 	struct io96b_data *data = dev->data;
 	const struct io96b_config *config = dev->config;
+	bool dbe = false, sbe = false;
 	int err_cnt;
+	uint32_t error_type;
+	uint32_t emif_id;
+	uint32_t error_add = 0;
 
 	/*
 	 * Read the ECC information and invoke the callback function to EDAC module.
@@ -322,21 +402,55 @@ static void io96b_isr(const struct device *dev)
 		data->ecc_info.err_cnt = err_cnt;
 		data->ecc_info.ovf_status = io96b_read_ecc_errs_ovf(dev);
 		if (data->ecc_info_cb != NULL) {
-			data->ecc_info_cb(dev, &data->ecc_info, data->cb_usr_data);
+			for (uint32_t i = 0; i < data->ecc_info.err_cnt; i++) {
+				/* Bit field 9:6 in Word0 contains the error type */
+				error_type = (data->ecc_info.buff[i].word0 & ECC_ERROR_TYPE_MASK) >>
+					     ECC_ERROR_TYPE_BIT_OFST;
+				/* Bit field 24:27 in word0 contains EMIF ID*/
+				emif_id = (data->ecc_info.buff[i].word0 & ECC_EMIF_ID_MASK) >>
+					  ECC_EMIF_ID_BIT_OFST;
+				/* Word1 contains ECC error ADDRESS LSB*/
+				error_add = data->ecc_info.buff[i].word1;
+				switch (error_type) {
+				case ECC_RMW_READ_LINK_DBE:
+				case ECC_READ_LINK_DBE:
+				case ECC_WRITE_LINK_DBE:
+				case ECC_MULTI_DBE:
+				case ECC_SINGLE_DBE:
+					/*Set dbe true for all kind of DBE error types*/
+					dbe = true;
+					break;
+				case ECC_READ_LINK_SBE:
+				case ECC_WRITE_LINK_SBE:
+				case ECC_MULTI_SBE:
+				case ECC_SINGLE_SBE:
+					/*Set sbe true for all kind of SBE error types*/
+					sbe = true;
+					data->sbe_count++;
+					break;
+				default:
+				}
+				LOG_DBG("%s : An ECC error detected at 0x%x, EMIF "
+					"ID: %d, error type: %d ",
+					dev->name, error_add, emif_id, error_type);
+				data->ecc_info_cb(dev, dbe, sbe, data->cb_usr_data);
+			}
 		} else {
-			LOG_DBG("Invalid call back function");
+			LOG_DBG("%s : Invalid call back function", dev->name);
 		}
-		LOG_DBG("%d ECC errors occurred ", err_cnt);
+		LOG_DBG("%s : %d ECC errors occurred ", dev->name, err_cnt);
 	} else {
 		/* The difference between producer counter and consumer counter
 		 * should always be less than or equal to maximum size of the ECC buffer
 		 */
-		LOG_ERR("%d Invalid ECC errors count ", err_cnt);
+		LOG_ERR("%s : %d Invalid ECC errors count ", dev->name, err_cnt);
 	}
 }
 
-static const struct io96b_driver_api io96b_driver_api = {
-	.mb_cmnd_send = io96b_mb_request,
+static const struct edac_ecc_driver_api io96b_driver_api = {
+#if defined(CONFIG_EDAC_ERROR_INJECT)
+	.inject_ecc_error = io96b_ecc_inject_error,
+#endif
 	.set_ecc_error_cb = io96b_set_ecc_error_cb,
 };
 
