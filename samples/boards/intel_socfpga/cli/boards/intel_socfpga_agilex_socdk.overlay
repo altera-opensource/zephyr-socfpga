@@ -68,3 +68,7 @@
 &usbotg0 {
 	status = "okay";
 };
+
+&hps_ecc {
+	status = "okay";
+};
