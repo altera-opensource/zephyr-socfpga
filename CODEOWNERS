@@ -276,8 +276,8 @@
 /drivers/dma/*iproc_pax*                  @raveenp
 /drivers/dma/*intel_adsp*                 @teburd @abonislawski
 /drivers/dma/*xmc4xxx*                    @talih0
-/drivers/edac/                            @finikorg
-/drivers/iossm/                           @Smale-12048867
+/drivers/edac/edac_ibecc                  @finikorg
+/drivers/edac/edac_intel_socfpga          @Smale-12048867
 /drivers/eeprom/                          @henrikbrixandersen
 /drivers/eeprom/eeprom_stm32.c            @KwonTae-young
 /drivers/entropy/*b91*                    @andy-liu-telink
