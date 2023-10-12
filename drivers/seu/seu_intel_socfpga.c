@@ -19,10 +19,10 @@
  * Driver Typical Workflow
  * (1) Register a callback function that specifies the required error mode. This registration
  *     will return a unique client number.
- * (2) Enable the callback function using the assigned client number.
- * (3) When an error detection event occurs, the driver will automatically trigger the registered
+ * (2) When an error detection event occurs, the driver will automatically trigger the registered
  *     callback function.
- * (4) To simulate an error, you can use the error injection API provided by the driver.
+ * (3) To simulate an error, you can use the error injection API provided by the driver.
+ * (4) Deregister a callback function that specifies the required error mode.
  *
  * Callback Function Implementation Requirement:
  * (1) The user must provide a callback function. When an error occurs, this callback function
@@ -214,6 +214,8 @@ struct private_data {
 	struct seu_statistics_data seu_statistics;
 	/* Pointer to SEU data */
 	struct seu_intel_socfpga_data *seu_data_ptr;
+	/* SEU Error Count*/
+	uint32_t seu_error_count;
 };
 
 /* SEU client for control user function calls */
@@ -226,6 +228,8 @@ struct seu_client {
 	bool seu_isr_callback_enable[CONFIG_SEU_MAX_CLIENT];
 	/* Number of function calls registered */
 	uint8_t total_callback_func;
+	/* Client tokens */
+	uint32_t client_token[CONFIG_SEU_MAX_CLIENT];
 };
 
 struct seu_intel_socfpga_data {
@@ -239,58 +243,60 @@ struct seu_intel_socfpga_data {
 	struct k_work_delayable seu_work_delay;
 	/* SEU client to control user function registration */
 	struct seu_client seu_client_local;
+	/* Synchronize critical data for SIP SVC */
+	struct k_mutex sip_svc_mutex;
 };
 
-static int32_t svc_client_open(struct sip_svc_controller *mailbox_smc_dev,
-			       uint32_t mailbox_client_token)
+static int32_t svc_client_open(struct seu_intel_socfpga_data *seu_data_ptr)
 {
-	if ((!mailbox_smc_dev) || (mailbox_client_token == 0)) {
+	struct k_mutex *sip_svc_ptr = NULL;
+
+	if ((!seu_data_ptr->mailbox_smc_dev) || (seu_data_ptr->mailbox_client_token == 0)) {
 		LOG_ERR("Mailbox client is not registered");
 		return -ENODEV;
 	}
 
-	if (sip_svc_open(mailbox_smc_dev, mailbox_client_token, K_MSEC(CONFIG_MAX_TIMEOUT_MSECS))) {
+	sip_svc_ptr = sip_svc_get_priv_data(seu_data_ptr->mailbox_smc_dev,
+					    seu_data_ptr->mailbox_client_token);
+
+	if (sip_svc_ptr == NULL) {
+		LOG_ERR("Retrieve private data failed");
+		return -EINVAL;
+	}
+
+	k_mutex_lock(sip_svc_ptr, K_FOREVER);
+
+	if (sip_svc_open(seu_data_ptr->mailbox_smc_dev, seu_data_ptr->mailbox_client_token,
+			 K_MSEC(CONFIG_MAX_TIMEOUT_MSECS))) {
 		LOG_ERR("Mailbox client open fail");
+		k_mutex_unlock(sip_svc_ptr);
 		return -ENODEV;
 	}
 
 	return 0;
 }
 
-static int32_t svc_client_close(struct sip_svc_controller *mailbox_smc_dev,
-				uint32_t mailbox_client_token)
+static int32_t svc_client_close(struct seu_intel_socfpga_data *seu_data_ptr)
 {
 	int32_t err;
-	uint32_t cmd_size = sizeof(uint32_t);
-	struct sip_svc_request request;
+	struct k_mutex *sip_svc_ptr = NULL;
 
-	uint32_t *cmd_addr = (uint32_t *)k_malloc(cmd_size);
-
-	if (!cmd_addr) {
-		return -ENOMEM;
-	}
-
-	/* Fill the SiP SVC buffer with CANCEL request */
-	*cmd_addr = MAILBOX_CANCEL_COMMAND;
-
-	request.header = SIP_SVC_PROTO_HEADER(SIP_SVC_PROTO_CMD_ASYNC, 0);
-	request.a0 = SMC_FUNC_ID_MAILBOX_SEND_COMMAND;
-	request.a1 = 0;
-	request.a2 = (uint64_t)cmd_addr;
-	request.a3 = (uint64_t)cmd_size;
-	request.a4 = 0;
-	request.a5 = 0;
-	request.a6 = 0;
-	request.a7 = 0;
-	request.resp_data_addr = (uint64_t)NULL;
-	request.resp_data_size = 0;
-	request.priv_data = NULL;
-
-	err = sip_svc_close(mailbox_smc_dev, mailbox_client_token, &request);
+	err = sip_svc_close(seu_data_ptr->mailbox_smc_dev, seu_data_ptr->mailbox_client_token,
+			    NULL);
 	if (err) {
 		LOG_ERR("Mailbox client close fail (%d)", err);
-		k_free(cmd_addr);
 	}
+
+	sip_svc_ptr = sip_svc_get_priv_data(seu_data_ptr->mailbox_smc_dev,
+					    seu_data_ptr->mailbox_client_token);
+
+	if (sip_svc_ptr == NULL) {
+		LOG_ERR("Retrieve private data failed");
+		k_mutex_unlock(sip_svc_ptr);
+		return -EINVAL;
+	}
+
+	k_mutex_unlock(sip_svc_ptr);
 
 	return err;
 }
@@ -298,17 +304,9 @@ static int32_t svc_client_close(struct sip_svc_controller *mailbox_smc_dev,
 static int handle_data(uint32_t *data, uint8_t mask, struct seu_intel_socfpga_data *priv_seu_data)
 {
 	uint32_t client_count;
-	struct seu_err_data seu_data;
-	struct ecc_err_data ecc_data;
-	struct misc_err_data misc_data;
-	struct pmf_err_data pmf_data;
-	struct misc_sdm_err_data misc_sdm_data;
-	struct emif_err_data emif_data;
 	void *error_data;
 
-	/* Total number of clients registered */
 	client_count = priv_seu_data->seu_client_local.total_callback_func;
-
 	if (client_count == 0) {
 		LOG_ERR("No function callback has been registered");
 		return -EINVAL;
@@ -316,68 +314,111 @@ static int handle_data(uint32_t *data, uint8_t mask, struct seu_intel_socfpga_da
 
 	switch (mask) {
 	case SEU_ERROR_MODE:
-		memset(&seu_data, 0, sizeof(struct seu_err_data));
-		seu_data.sub_error_type = GET_SEU_ERR_READ_ERR_DATA_TYPE(data[INDEX_SEU_ERROR_3]);
-		seu_data.sector_addr = GET_SEU_ERR_SECTOR_ERROR(data[INDEX_SEU_ERROR_2]);
-		seu_data.correction_status =
+		struct seu_err_data *seu_data;
+
+		seu_data = (struct seu_err_data *)k_malloc(sizeof(struct seu_err_data));
+		if (seu_data == NULL) {
+			LOG_ERR("Failed to get memory");
+			return -ENOSR;
+		}
+		memset(seu_data, 0, sizeof(struct seu_err_data));
+		seu_data->sub_error_type = GET_SEU_ERR_READ_ERR_DATA_TYPE(data[INDEX_SEU_ERROR_3]);
+		seu_data->sector_addr = GET_SEU_ERR_SECTOR_ERROR(data[INDEX_SEU_ERROR_2]);
+		seu_data->correction_status =
 			GET_SEU_ERR_READ_CORRECTION_STATUS(data[INDEX_SEU_ERROR_3]);
-		seu_data.row_frame_index =
+		seu_data->row_frame_index =
 			GET_SEU_ERR_READ_ROW_FRAME_INDEX(data[INDEX_SEU_ERROR_3]);
-		seu_data.bit_position = GET_SEU_ERR_READ_BIT_POS_FRAME(data[INDEX_SEU_ERROR_3]);
-		error_data = (void *)&seu_data;
+		seu_data->bit_position = GET_SEU_ERR_READ_BIT_POS_FRAME(data[INDEX_SEU_ERROR_3]);
+		error_data = (void *)seu_data;
 		break;
 
 	case ECC_ERROR_MODE:
-		memset(&ecc_data, 0, sizeof(struct ecc_err_data));
-		ecc_data.sub_error_type = GET_SEU_ERR_READ_ERR_DATA_TYPE(data[INDEX_SEU_ERROR_3]);
-		ecc_data.sector_addr = GET_SEU_ERR_SECTOR_ERROR(data[INDEX_SEU_ERROR_2]);
-		ecc_data.correction_status =
+		struct ecc_err_data *ecc_data;
+
+		ecc_data = (struct ecc_err_data *)k_malloc(sizeof(struct ecc_err_data));
+		if (ecc_data == NULL) {
+			LOG_ERR("Failed to get memory");
+			return -ENOSR;
+		}
+		memset(ecc_data, 0, sizeof(struct ecc_err_data));
+		ecc_data->sub_error_type = GET_SEU_ERR_READ_ERR_DATA_TYPE(data[INDEX_SEU_ERROR_3]);
+		ecc_data->sector_addr = GET_SEU_ERR_SECTOR_ERROR(data[INDEX_SEU_ERROR_2]);
+		ecc_data->correction_status =
 			GET_SEU_ERR_READ_CORRECTION_STATUS(data[INDEX_SEU_ERROR_3]);
-		ecc_data.ram_id_error = GET_ECC_ERR_DATA(data[INDEX_SEU_ERROR_3]);
-		error_data = (void *)&ecc_data;
+		ecc_data->ram_id_error = GET_ECC_ERR_DATA(data[INDEX_SEU_ERROR_3]);
+		error_data = (void *)ecc_data;
 		break;
 
 	case MISC_CNT_ERROR_MODE:
-		memset(&misc_data, 0, sizeof(struct misc_err_data));
-		misc_data.sub_error_type = GET_SEU_ERR_READ_ERR_DATA_TYPE(data[INDEX_SEU_ERROR_3]);
-		misc_data.sector_addr = GET_SEU_ERR_SECTOR_ERROR(data[INDEX_SEU_ERROR_2]);
-		misc_data.correction_status =
+		struct misc_err_data *misc_data;
+
+		misc_data = (struct misc_err_data *)k_malloc(sizeof(struct misc_err_data));
+		if (misc_data == NULL) {
+			LOG_ERR("Failed to get memory");
+			return -ENOSR;
+		}
+		memset(misc_data, 0, sizeof(struct misc_err_data));
+		misc_data->sub_error_type = GET_SEU_ERR_READ_ERR_DATA_TYPE(data[INDEX_SEU_ERROR_3]);
+		misc_data->sector_addr = GET_SEU_ERR_SECTOR_ERROR(data[INDEX_SEU_ERROR_2]);
+		misc_data->correction_status =
 			GET_SEU_ERR_READ_CORRECTION_STATUS(data[INDEX_SEU_ERROR_3]);
-		misc_data.cnt_type = GET_MISC_CNT_TYPE(data[INDEX_SEU_ERROR_3]);
-		misc_data.status_code = GET_MISC_ERR_READ_CNT_TYPE(data[INDEX_SEU_ERROR_3]);
-		error_data = (void *)&misc_data;
+		misc_data->cnt_type = GET_MISC_CNT_TYPE(data[INDEX_SEU_ERROR_3]);
+		misc_data->status_code = GET_MISC_ERR_READ_CNT_TYPE(data[INDEX_SEU_ERROR_3]);
+		error_data = (void *)misc_data;
 		break;
 
 	case PMF_ERROR_MODE:
-		memset(&pmf_data, 0, sizeof(struct pmf_err_data));
-		pmf_data.sub_error_type = GET_SEU_ERR_READ_ERR_DATA_TYPE(data[INDEX_SEU_ERROR_3]);
-		pmf_data.sector_addr = GET_SEU_ERR_SECTOR_ERROR(data[INDEX_SEU_ERROR_2]);
-		pmf_data.correction_status =
+		struct pmf_err_data *pmf_data;
+
+		pmf_data = (struct pmf_err_data *)k_malloc(sizeof(struct pmf_err_data));
+		if (pmf_data == NULL) {
+			LOG_ERR("Failed to get memory");
+			return -ENOSR;
+		}
+		memset(pmf_data, 0, sizeof(struct pmf_err_data));
+		pmf_data->sub_error_type = GET_SEU_ERR_READ_ERR_DATA_TYPE(data[INDEX_SEU_ERROR_3]);
+		pmf_data->sector_addr = GET_SEU_ERR_SECTOR_ERROR(data[INDEX_SEU_ERROR_2]);
+		pmf_data->correction_status =
 			GET_SEU_ERR_READ_CORRECTION_STATUS(data[INDEX_SEU_ERROR_3]);
-		pmf_data.status_code = GET_MISC_ERR_READ_CNT_TYPE(data[INDEX_SEU_ERROR_3]);
-		error_data = (void *)&pmf_data;
+		pmf_data->status_code = GET_MISC_ERR_READ_CNT_TYPE(data[INDEX_SEU_ERROR_3]);
+		error_data = (void *)pmf_data;
 		break;
 
 	case MISC_SDM_ERROR_MODE:
-		memset(&misc_sdm_data, 0, sizeof(struct misc_sdm_err_data));
-		misc_sdm_data.sub_error_type =
+		struct misc_sdm_err_data *misc_sdm_data;
+
+		misc_sdm_data =
+			(struct misc_sdm_err_data *)k_malloc(sizeof(struct misc_sdm_err_data));
+		if (misc_sdm_data == NULL) {
+			LOG_ERR("Failed to get memory");
+			return -ENOSR;
+		}
+		memset(misc_sdm_data, 0, sizeof(struct misc_sdm_err_data));
+		misc_sdm_data->sub_error_type =
 			GET_SEU_ERR_READ_ERR_DATA_TYPE(data[INDEX_SEU_ERROR_3]);
-		misc_sdm_data.sector_addr = GET_SEU_ERR_SECTOR_ERROR(data[INDEX_SEU_ERROR_2]);
-		misc_sdm_data.correction_status =
+		misc_sdm_data->sector_addr = GET_SEU_ERR_SECTOR_ERROR(data[INDEX_SEU_ERROR_2]);
+		misc_sdm_data->correction_status =
 			GET_SEU_ERR_READ_CORRECTION_STATUS(data[INDEX_SEU_ERROR_3]);
-		misc_sdm_data.wdt_code = GET_WDT_ERROR_STATUS_TYPE(data[INDEX_SEU_ERROR_3]);
-		error_data = (void *)&misc_sdm_data;
+		misc_sdm_data->wdt_code = GET_WDT_ERROR_STATUS_TYPE(data[INDEX_SEU_ERROR_3]);
+		error_data = (void *)misc_sdm_data;
 		break;
 
 	case MISC_EMIF_ERROR_MODE:
-		memset(&emif_data, 0, sizeof(struct emif_err_data));
-		emif_data.sector_addr = GET_SEU_ERR_SECTOR_ERROR(data[INDEX_SEU_ERROR_2]);
-		emif_data.emif_id = GET_EMIF_ID(data[INDEX_SEU_ERROR_3]);
-		emif_data.source_id = GET_SOURCE_ID(data[INDEX_SEU_ERROR_3]);
-		emif_data.emif_error_type = GET_EMIF_ERROR_TYPE(data[INDEX_SEU_ERROR_3]);
-		emif_data.ddr_addr_msb = data[INDEX_SEU_ERROR_3];
-		emif_data.ddr_addr_lsb = GET_EMIF_DDR_LSB(data[INDEX_SEU_ERROR_4]);
-		error_data = (void *)&emif_data;
+		struct emif_err_data *emif_data;
+
+		emif_data = (struct emif_err_data *)k_malloc(sizeof(struct emif_err_data));
+		if (emif_data == NULL) {
+			LOG_ERR("Failed to get memory");
+			return -ENOSR;
+		}
+		memset(emif_data, 0, sizeof(struct emif_err_data));
+		emif_data->sector_addr = GET_SEU_ERR_SECTOR_ERROR(data[INDEX_SEU_ERROR_2]);
+		emif_data->emif_id = GET_EMIF_ID(data[INDEX_SEU_ERROR_3]);
+		emif_data->source_id = GET_SOURCE_ID(data[INDEX_SEU_ERROR_3]);
+		emif_data->emif_error_type = GET_EMIF_ERROR_TYPE(data[INDEX_SEU_ERROR_3]);
+		emif_data->ddr_addr_msb = data[INDEX_SEU_ERROR_3];
+		emif_data->ddr_addr_lsb = GET_EMIF_DDR_LSB(data[INDEX_SEU_ERROR_4]);
+		error_data = (void *)emif_data;
 		break;
 
 	default:
@@ -387,12 +428,13 @@ static int handle_data(uint32_t *data, uint8_t mask, struct seu_intel_socfpga_da
 
 	k_mutex_lock(&(priv_seu_data->seu_mutex), K_FOREVER);
 
-	for (int index = 0; index < client_count; index++) {
+	for (int index = 0; index < CONFIG_SEU_MAX_CLIENT; index++) {
 		if ((priv_seu_data->seu_client_local.seu_isr_callback_enable[index] == true) &&
 		    (priv_seu_data->seu_client_local.seu_isr_callback_mode[index] == mask)) {
 			priv_seu_data->seu_client_local.seu_isr_callback[index](error_data);
 		}
 	}
+	k_free(error_data);
 	k_mutex_unlock(&(priv_seu_data->seu_mutex));
 	return 0;
 }
@@ -428,13 +470,17 @@ static void seu_callback(uint32_t c_token, struct sip_svc_response *response)
 		if (error_code == 0) {
 			if ((response_length == 1) && (resp_data[INDEX_SEU_ERROR_1] == 0)) {
 				LOG_INF("No error occur");
+				priv->seu_error_count = resp_data[INDEX_SEU_ERROR_1];
 				priv->status = error_code;
 			} else {
+				/* response length can be more then 4 incase of multiple errors */
+				/* but the same is not observed while testing */
 				if ((response_length == 3) || (response_length == 4)) {
 					if (ERROR_FRAME_DETECT(resp_data[INDEX_SEU_ERROR_2]) != 0) {
 						priv->status = error_code;
 						LOG_ERR("Error detected parameter not zero");
 					}
+					priv->seu_error_count = resp_data[INDEX_SEU_ERROR_1];
 					error_detect_type =
 						ERROR_FRAME_TYPE(resp_data[INDEX_SEU_ERROR_2]);
 					ret = handle_data(resp_data, error_detect_type,
@@ -494,8 +540,7 @@ static int seu_send_sip_svc(uint32_t *cmd_addr, uint32_t cmd_size, uint32_t *res
 	request.a3 = (uint64_t)cmd_size;
 
 	/* Opening SiP SVC session */
-	err = svc_client_open(private_data->seu_data_ptr->mailbox_smc_dev,
-			      private_data->seu_data_ptr->mailbox_client_token);
+	err = svc_client_open(private_data->seu_data_ptr);
 	if (err) {
 		LOG_ERR("Client open failed!");
 		k_free(cmd_addr);
@@ -508,20 +553,18 @@ static int seu_send_sip_svc(uint32_t *cmd_addr, uint32_t cmd_size, uint32_t *res
 	if (trans_id < 0) {
 		LOG_ERR("SiP SVC send request fail");
 		k_free(cmd_addr);
-		return -EBUSY;
+		goto sip_svc_client_close;
 	}
 
 	err = k_sem_take(&(private_data->semaphore), K_FOREVER);
 	if (err != 0) {
 		LOG_ERR("Error in taking semaphore");
-		return -EINVAL;
 	}
 
-	err = svc_client_close(private_data->seu_data_ptr->mailbox_smc_dev,
-			       private_data->seu_data_ptr->mailbox_client_token);
+sip_svc_client_close:
+	err = svc_client_close(private_data->seu_data_ptr);
 	if (err) {
 		LOG_ERR("Unregistering & Closing failed");
-		k_free(cmd_addr);
 		return err;
 	}
 
@@ -530,7 +573,7 @@ static int seu_send_sip_svc(uint32_t *cmd_addr, uint32_t cmd_size, uint32_t *res
 	return err;
 }
 
-int read_seu_error(struct seu_intel_socfpga_data *const seu_data)
+int read_seu_error(struct seu_intel_socfpga_data *const seu_data, uint32_t *seu_error_count)
 {
 	uint32_t *cmd_addr = NULL, *resp_addr = NULL;
 	uint32_t cmd_size = (sizeof(uint32_t));
@@ -557,6 +600,7 @@ int read_seu_error(struct seu_intel_socfpga_data *const seu_data)
 
 	ret = seu_send_sip_svc(cmd_addr, cmd_size, resp_addr, resp_size, &priv);
 
+	*seu_error_count = priv.seu_error_count;
 	k_free(resp_addr);
 
 	return ret;
@@ -567,14 +611,16 @@ static void seu_delayed_work(struct k_work *work)
 	int ret;
 	struct seu_intel_socfpga_data *seu_data;
 	struct k_work_delayable *dwork = k_work_delayable_from_work(work);
+	uint32_t seu_error_count = 0;
 
 	/* To get structure base address using structure member */
 	seu_data = CONTAINER_OF(dwork, struct seu_intel_socfpga_data, seu_work_delay);
-
-	ret = read_seu_error(seu_data);
-	if (ret != 0) {
-		LOG_ERR("SEU read error failed! - %x", ret);
-	}
+	do {
+		ret = read_seu_error(seu_data, &seu_error_count);
+		if (ret != 0) {
+			LOG_ERR("SEU read error failed! - %x", ret);
+		}
+	} while (seu_error_count > 1);
 
 	/* After reading the SEU data from the FIFO, enable the interrupt */
 	irq_enable(SEU_ERROR_IRQn);
@@ -599,6 +645,10 @@ static int intel_socfpga_seu_callback_function_register(const struct device *dev
 							seu_isr_callback_t func,
 							enum seu_reg_mode mode, uint32_t *client)
 {
+	uint32_t unique_token;
+	uint32_t unique_check = 0;
+	int32_t available_slot = -1;
+
 	struct seu_intel_socfpga_data *const seu_data =
 		(struct seu_intel_socfpga_data *const)dev->data;
 
@@ -606,20 +656,38 @@ static int intel_socfpga_seu_callback_function_register(const struct device *dev
 		LOG_ERR("Input parameters value null");
 		return -EINVAL;
 	}
-
-	if (seu_data->seu_client_local.total_callback_func > CONFIG_SEU_MAX_CLIENT) {
-		LOG_ERR("Unable to register a callback as the maximum count has been reached");
-		return -EINVAL;
-	}
-
 	k_mutex_lock(&(seu_data->seu_mutex), K_FOREVER);
 
+	for (int index = 0; index < CONFIG_SEU_MAX_CLIENT; index++) {
+
+		if (seu_data->seu_client_local.seu_isr_callback[index] == NULL) {
+			available_slot = index;
+		}
+	}
+
+	if (available_slot == -1) {
+		LOG_ERR("Unable to register a callback as the maximum count has been reached");
+		k_mutex_unlock(&(seu_data->seu_mutex));
+		return -EINVAL;
+	}
+	/* Verifying the existence of a unique ID in the array of unique IDs */
+	do {
+		unique_token = k_cycle_get_32();
+		unique_check = 0;
+		for (int index = 0; index < CONFIG_SEU_MAX_CLIENT; index++) {
+			if (seu_data->seu_client_local.client_token[index] == unique_token) {
+				unique_check = 1;
+				break;
+			}
+		}
+	} while (unique_check != 0);
+
 	/* Registering the SEU callback function */
-	seu_data->seu_client_local
-		.seu_isr_callback[seu_data->seu_client_local.total_callback_func] = func;
-	seu_data->seu_client_local
-		.seu_isr_callback_mode[seu_data->seu_client_local.total_callback_func] = mode;
-	*client = seu_data->seu_client_local.total_callback_func;
+	seu_data->seu_client_local.seu_isr_callback[available_slot] = func;
+	seu_data->seu_client_local.seu_isr_callback_mode[available_slot] = mode;
+	seu_data->seu_client_local.seu_isr_callback_enable[available_slot] = true;
+	seu_data->seu_client_local.client_token[available_slot] = unique_token;
+	*client = unique_token;
 	seu_data->seu_client_local.total_callback_func++;
 
 	k_mutex_unlock(&(seu_data->seu_mutex));
@@ -627,35 +695,31 @@ static int intel_socfpga_seu_callback_function_register(const struct device *dev
 	return 0;
 }
 
-static int intel_socfpga_seu_callback_function_enable(const struct device *dev, uint32_t client)
+static int intel_socfpga_seu_callback_function_deregister(const struct device *dev, uint32_t client)
 {
+	int32_t client_position = -1;
+
 	struct seu_intel_socfpga_data *const seu_data =
 		(struct seu_intel_socfpga_data *const)dev->data;
 
 	k_mutex_lock(&(seu_data->seu_mutex), K_FOREVER);
-	if (seu_data->seu_client_local.total_callback_func < client) {
+
+	for (int index = 0; index < CONFIG_SEU_MAX_CLIENT; index++) {
+		if (seu_data->seu_client_local.client_token[index] == client) {
+			client_position = index;
+			break;
+		}
+	}
+	if (client_position == -1) {
 		LOG_ERR("No client registration found!");
 		k_mutex_unlock(&(seu_data->seu_mutex));
 		return -EINVAL;
 	}
-	seu_data->seu_client_local.seu_isr_callback_enable[client] = true;
-	k_mutex_unlock(&(seu_data->seu_mutex));
-
-	return 0;
-}
-
-static int intel_socfpga_seu_callback_function_disable(const struct device *dev, uint32_t client)
-{
-	struct seu_intel_socfpga_data *const seu_data =
-		(struct seu_intel_socfpga_data *const)dev->data;
-
-	k_mutex_lock(&(seu_data->seu_mutex), K_FOREVER);
-	if (seu_data->seu_client_local.total_callback_func < client) {
-		LOG_ERR("No client registration found!");
-		k_mutex_unlock(&(seu_data->seu_mutex));
-		return -EINVAL;
-	}
-	seu_data->seu_client_local.seu_isr_callback_enable[client] = false;
+	/* Deregister the SEU callback function */
+	seu_data->seu_client_local.seu_isr_callback_enable[client_position] = false;
+	seu_data->seu_client_local.client_token[client_position] = 0;
+	seu_data->seu_client_local.seu_isr_callback_mode[client_position] = MAX_SEU_ERROR_MODE;
+	seu_data->seu_client_local.seu_isr_callback[client_position] = NULL;
 	k_mutex_unlock(&(seu_data->seu_mutex));
 
 	return 0;
@@ -853,11 +917,24 @@ static int seu_intel_socfpga_init(const struct device *dev)
 
 	/* Initialize the client count to zero */
 	seu_data_ptr->seu_client_local.total_callback_func = 0;
+	for (int index = 0; index < CONFIG_SEU_MAX_CLIENT; index++) {
+		seu_data_ptr->seu_client_local.seu_isr_callback[index] = NULL;
+		seu_data_ptr->seu_client_local.seu_isr_callback_mode[index] = MAX_SEU_ERROR_MODE;
+		seu_data_ptr->seu_client_local.seu_isr_callback_enable[index] = false;
+	}
 	/* Initialize the Mutex */
 	ret = k_mutex_init(&(seu_data_ptr->seu_mutex));
 
 	if (ret != 0) {
 		LOG_ERR("SEU mutex creation failed");
+		return ret;
+	}
+
+	/* Initialize the Mutex */
+	ret = k_mutex_init(&(seu_data_ptr->sip_svc_mutex));
+
+	if (ret != 0) {
+		LOG_ERR("SiP SVC mutex creation failed");
 		return ret;
 	}
 
@@ -867,7 +944,8 @@ static int seu_intel_socfpga_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-	seu_data_ptr->mailbox_client_token = sip_svc_register(seu_data_ptr->mailbox_smc_dev, NULL);
+	seu_data_ptr->mailbox_client_token =
+		sip_svc_register(seu_data_ptr->mailbox_smc_dev, &seu_data_ptr->sip_svc_mutex);
 	if (seu_data_ptr->mailbox_client_token == SIP_SVC_ID_INVALID) {
 		seu_data_ptr->mailbox_smc_dev = NULL;
 		LOG_ERR("Mailbox client register fail");
@@ -888,8 +966,7 @@ static int seu_intel_socfpga_init(const struct device *dev)
 
 static const struct seu_api api = {
 	.seu_callback_function_register = intel_socfpga_seu_callback_function_register,
-	.seu_callback_function_enable = intel_socfpga_seu_callback_function_enable,
-	.seu_callback_function_disable = intel_socfpga_seu_callback_function_disable,
+	.seu_callback_function_deregister = intel_socfpga_seu_callback_function_deregister,
 	.insert_safe_seu_error = intel_socfpga_insert_safe_seu_error,
 	.insert_seu_error = intel_socfpga_insert_seu_error,
 	.insert_ecc_error = intel_socfpga_insert_ecc_error,
