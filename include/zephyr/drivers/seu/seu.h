@@ -224,16 +224,10 @@ typedef int (*seu_callback_function_register_t)(const struct device *dev, seu_is
 						enum seu_reg_mode mode, uint32_t *client);
 
 /**
- * @brief Callback API to check the response of seu_callback_function_enable
- * See @a seu_callback_function_enable() for argument description
+ * @brief Callback API to check the response of seu_callback_function_deregister_t
+ * See @a seu_callback_function_deregister_t() for argument description
  */
-typedef int (*seu_callback_function_enable_t)(const struct device *dev, uint32_t client);
-
-/**
- * @brief Callback API to check the response of seu_callback_function_disable
- * See @a seu_callback_function_disable() for argument description
- */
-typedef int (*seu_callback_function_disable_t)(const struct device *dev, uint32_t client);
+typedef int (*seu_callback_function_deregister_t)(const struct device *dev, uint32_t client);
 
 /**
  * @brief Callback API to insert safe SEU error
@@ -269,8 +263,7 @@ typedef int (*read_seu_statistics_t)(const struct device *dev, uint8_t sector,
  */
 __subsystem struct seu_api {
 	seu_callback_function_register_t seu_callback_function_register;
-	seu_callback_function_enable_t seu_callback_function_enable;
-	seu_callback_function_disable_t seu_callback_function_disable;
+	seu_callback_function_deregister_t seu_callback_function_deregister;
 	insert_safe_seu_error_t insert_safe_seu_error;
 	insert_seu_error_t insert_seu_error;
 	insert_ecc_error_t insert_ecc_error;
@@ -302,39 +295,21 @@ static inline int z_impl_seu_callback_function_register(const struct device *dev
 }
 
 /**
- * Enable the Single Event Upsets (SEU) callback function for a specific client.
+ * Deregister the Single Event Upsets (SEU) callback function for a specific client.
  *
  * @param dev     Pointer to the device structure for the driver instance.
- * @param client  client number to enable callback function.
+ * @param client  client number to deregister callback function.
  *
- * @return        0 if the callback function is successfully enabled, an error code otherwise.
+ * @return        0 if the callback function is successfully deregister, an error code otherwise.
  */
-__syscall int seu_callback_function_enable(const struct device *dev, uint32_t client);
-static inline int z_impl_seu_callback_function_enable(const struct device *dev, uint32_t client)
+__syscall int seu_callback_function_deregister(const struct device *dev, uint32_t client);
+static inline int z_impl_seu_callback_function_deregister(const struct device *dev, uint32_t client)
 {
 	__ASSERT(dev, "Driver instance shouldn't be NULL");
 
 	const struct seu_api *api = (struct seu_api *)dev->api;
 
-	return api->seu_callback_function_enable(dev, client);
-}
-
-/**
- * Disable the Single Event Upsets (SEU) callback function for a specific client.
- *
- * @param dev     Pointer to the device structure for the driver instance.
- * @param client  client number to disable callback function.
- *
- * @return        0 if the callback function is successfully enabled, an error code otherwise.
- */
-__syscall int seu_callback_function_disable(const struct device *dev, uint32_t client);
-static inline int z_impl_seu_callback_function_disable(const struct device *dev, uint32_t client)
-{
-	__ASSERT(dev, "Driver instance shouldn't be NULL");
-
-	const struct seu_api *api = (struct seu_api *)dev->api;
-
-	return api->seu_callback_function_disable(dev, client);
+	return api->seu_callback_function_deregister(dev, client);
 }
 
 /**
