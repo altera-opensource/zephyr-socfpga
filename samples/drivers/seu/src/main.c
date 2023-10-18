@@ -161,14 +161,7 @@ int main(void)
 		return ret;
 	}
 
-	printk("The Client No is %d\n", client_no_seu);
-
-	ret = seu_callback_function_enable(seu_dev, client_no_seu);
-
-	if (ret != 0) {
-		printk("SEU callback function register enable failed\n");
-		return ret;
-	}
+	printk("The Client No is 0x%x\n", client_no_seu);
 
 	ret = seu_callback_function_register(seu_dev, ecc_callback, ECC_ERROR_MODE, &client_no_ecc);
 
@@ -176,14 +169,7 @@ int main(void)
 		printk("SEU callback function register failed\n");
 		return ret;
 	}
-	printk("The Client No is %d\n", client_no_ecc);
-
-	if (ret != 0) {
-		printk("SEU callback function register enable failed\n");
-		return ret;
-	}
-
-	ret = seu_callback_function_enable(seu_dev, client_no_ecc);
+	printk("The Client No is 0x%x\n", client_no_ecc);
 
 	if (ret != 0) {
 		printk("SEU callback function register enable failed\n");
@@ -219,14 +205,14 @@ int main(void)
 	k_sem_take(&semaphore, K_FOREVER);
 	printk("Read ECC Error Test Completed\n");
 
-	ret = seu_callback_function_disable(seu_dev, client_no_ecc);
+	ret = seu_callback_function_deregister(seu_dev, client_no_ecc);
 
 	if (ret != 0) {
 		printk("SEU callback function register disable failed\n");
 		return ret;
 	}
 
-	ret = seu_callback_function_disable(seu_dev, client_no_seu);
+	ret = seu_callback_function_deregister(seu_dev, client_no_seu);
 
 	if (ret != 0) {
 		printk("SEU callback function register disable failed\n");

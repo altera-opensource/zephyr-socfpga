@@ -28,25 +28,25 @@ Sample Output
 *************
 .. code-block:: console
 
-*** Booting Zephyr OS build zephyr-v3.4.0-347-g1d0731cbae99 ***
+*** Booting Zephyr OS build zephyr-v3.4.0-390-ga8fabc416394 ***
 SEU Test Started
-The Client No is 0
-The Client No is 1
-SEU Safe Error insert Test Started
+The Client No is 0x82bff6de
+The Client No is 0x82cf4162
+SEU Safe Error Insert Test Started
 The SEU Error Type: 1:
 The Sector Address: 5
 The Correction status: 1
 The row frame index: 6
 The bit position: 16
-SEU Safe Error insert Test Completed
-Read SEU Status Test Started
-The value of t_seu_cycle : 7735946e
-The value of t_seu_detect : a7bb6
-The value of t_seu_correct : ab6
-The value of t_seu_inject_detect : 3e97dba1
-The value of t_sdm_seu_poll_interval : 61a82
-The value of t_sdm_seu_pin_toggle_overhead : 2fd3
-Read SEU Status Test Completed
+SEU Safe Error Insert Test Completed
+Read SEU Statistics Test Started
+The value of t_seu_cycle : 0x7735942d
+The value of t_seu_detect : 0xa7bba
+The value of t_seu_correct : 0xab6
+The value of t_seu_inject_detect : 0x6bf8c537
+The value of t_sdm_seu_poll_interval : 0x61a80
+The value of t_sdm_seu_pin_toggle_overhead : 0x2fd3
+Read SEU Statistics Test Completed
 Read ECC Error Test Started
 The ECC Error Type: 1:
 The Sector Address: 255
