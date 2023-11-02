@@ -5,6 +5,7 @@
 config EDAC_INTEL_SOCFPGA
 	bool "Intel SoC FPGA EDAC module"
 	default n
+	depends on ARM_SIP_SVC_SUBSYS
 	help
 	 Enable the EDAC module for Intel SoC FPGA device
 

@@ -451,6 +451,7 @@ static const struct edac_ecc_driver_api io96b_driver_api = {
 #if defined(CONFIG_EDAC_ERROR_INJECT)
 	.inject_ecc_error = io96b_ecc_inject_error,
 #endif
+	.get_sbe_ecc_err_cnt = io96b_get_sbe_ecc_error_cnt,
 	.set_ecc_error_cb = io96b_set_ecc_error_cb,
 };
 
