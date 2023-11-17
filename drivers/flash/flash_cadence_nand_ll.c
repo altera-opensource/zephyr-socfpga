@@ -95,9 +95,9 @@ static int cdns_nand_device_info(struct cadence_nand_params *params)
 
 	/* Calculate block size and total device size */
 	params->block_size = (params->npages_per_block * params->page_size);
-	params->device_size = (params->block_size * params->nblocks_per_lun * params->nluns);
-	LOG_INF("block size %x total device size %llx", params->block_size,
-		params->device_size);
+	params->device_size = ((long long)params->block_size *
+			       (long long)(params->nblocks_per_lun * params->nluns));
+	LOG_INF("block size %x total device size %llx", params->block_size, params->device_size);
 
 	/* Calculate bit size of page, block and lun*/
 	params->page_size_bit = find_msb_set((params->npages_per_block) - 1);
@@ -317,36 +317,6 @@ static int cdns_nand_set_opr_mode(uintptr_t base_address, uint8_t opr_mode)
 }
 
 /**
- * Set the access width of the Cadence NAND controller to 16 bits.
- *
- * @param base_address The base address of the Cadence NAND controller.
- * @param value The value to be written to configure the access width (true or flase).
- * @retval  0 on success or negative error value on failure.
- */
-static int cdns_nand_set_access_width16(uintptr_t base_address, bool value)
-{
-	uint32_t reg_value = 0;
-	int ret = 0;
-
-	/* Wait for controller to be in idle state */
-	ret = cdns_nand_wait_idle(base_address);
-
-	if (ret != 0) {
-		LOG_ERR("Wait for controller to be in idle state Failed");
-		return ret;
-	}
-
-	sys_write32(reg_value, CNF_MINICTRL(base_address, CMN_SETTINGS));
-
-	if (!value) {
-		sys_clear_bit(CNF_MINICTRL(base_address, CMN_SETTINGS), COMMON_SET_DEVICE_16BIT);
-	} else {
-		sys_set_bit(CNF_MINICTRL(base_address, CMN_SETTINGS), COMMON_SET_DEVICE_16BIT);
-	}
-	return 0;
-}
-
-/**
  * Configure the transfer settings of the Cadence NAND controller.
  *
  * @param base_address The base address of the Cadence NAND controller.
@@ -384,7 +354,6 @@ static int cdns_nand_transfer_config(uintptr_t base_address)
 int cdns_nand_init(struct cadence_nand_params *params)
 {
 	uint32_t reg_value_read = 0;
-	uint32_t status = 0;
 	uintptr_t base_address = params->nand_base;
 	uint8_t datarate_mode = params->datarate_mode;
 	int ret;
@@ -457,13 +426,6 @@ int cdns_nand_init(struct cadence_nand_params *params)
 	/* Total bits in row addressing*/
 	params->total_bit_row = find_msb_set(((params->npages_per_block) - 1)) +
 				find_msb_set((params->nblocks_per_lun) - 1);
-	/* Set width size */
-	status = sys_read32(CNF_CTRLPARAM(base_address, FEATURE));
-	if (CNF_HW_NF_16_SUPPORT(status)) {
-		ret = cdns_nand_set_access_width16(base_address, true);
-	} else {
-		ret = cdns_nand_set_access_width16(base_address, false);
-	}
 
 	if (ret != 0) {
 		LOG_ERR("Failed to establish device access width!");
@@ -999,9 +961,6 @@ static int cdns_generic_send_cmd(struct cadence_nand_params *params, uint64_t mi
 #endif
 	status |= CMD_0_C_MODE_SET(CT_GENERIC_MODE);
 	sys_write32(status, (base_address + CDNS_CMD_REG0));
-#ifdef CONFIG_CDNS_NAND_INTERRUPT_SUPPORT
-	k_sem_take(&params->interrupt_sem_t, K_FOREVER);
-#endif
 	return 0;
 }
 
@@ -1098,10 +1057,16 @@ static int cdns_generic_page_read(struct cadence_nand_params *params, uint64_t r
 	if (ret != 0) {
 		return ret;
 	}
+#ifdef CONFIG_CDNS_NAND_INTERRUPT_SUPPORT
+	k_sem_take(&params->interrupt_sem_t, K_FOREVER);
+#endif
 	ret = cdns_generic_cmd_data(params, CDNS_READ, params->page_size);
 	if (ret != 0) {
 		return ret;
 	}
+#ifdef CONFIG_CDNS_NAND_INTERRUPT_SUPPORT
+	k_sem_take(&params->interrupt_sem_t, K_FOREVER);
+#endif
 	ret = cdns_wait_sdma(base_address);
 	if (ret != 0) {
 		return ret;
@@ -1126,7 +1091,6 @@ static int cdns_generic_page_write(struct cadence_nand_params *params, uint64_t 
 
 	uintptr_t base_address = params->nand_base;
 
-	sdma_buffer_copy(params->sdma_base, data_buffer, params->page_size, CDNS_WRITE);
 	mini_ctrl_cmd |= GCMD_TWB_VALUE;
 	mini_ctrl_cmd |= GEN_ADDR_WRITE_DATA((uint32_t)write_address);
 	if ((params->nluns > 1) || (params->total_bit_row > BIT16_CHECK)) {
@@ -1139,10 +1103,17 @@ static int cdns_generic_page_write(struct cadence_nand_params *params, uint64_t 
 	if (ret != 0) {
 		return ret;
 	}
+#ifdef CONFIG_CDNS_NAND_INTERRUPT_SUPPORT
+	k_sem_take(&params->interrupt_sem_t, K_FOREVER);
+#endif
 	ret = cdns_generic_cmd_data(params, CDNS_WRITE, params->page_size);
 	if (ret != 0) {
 		return ret;
 	}
+	sdma_buffer_copy(params->sdma_base, data_buffer, params->page_size, CDNS_WRITE);
+#ifdef CONFIG_CDNS_NAND_INTERRUPT_SUPPORT
+	k_sem_take(&params->interrupt_sem_t, K_FOREVER);
+#endif
 	mini_ctrl_cmd = 0;
 	mini_ctrl_cmd |= PAGE_WRITE_10H_CMD;
 	mini_ctrl_cmd |= GCMD_TWB_VALUE;
@@ -1151,6 +1122,9 @@ static int cdns_generic_page_write(struct cadence_nand_params *params, uint64_t 
 	if (ret != 0) {
 		return ret;
 	}
+#ifdef CONFIG_CDNS_NAND_INTERRUPT_SUPPORT
+	k_sem_take(&params->interrupt_sem_t, K_FOREVER);
+#endif
 	ret = cdns_wait_sdma(base_address);
 	return ret;
 }
@@ -1216,6 +1190,9 @@ static int cdns_nand_gen_erase(struct cadence_nand_params *params, uint32_t star
 		if (ret != 0) {
 			return ret;
 		}
+#ifdef CONFIG_CDNS_NAND_INTERRUPT_SUPPORT
+		k_sem_take(&params->interrupt_sem_t, K_FOREVER);
+#endif
 	}
 	return 0;
 }
