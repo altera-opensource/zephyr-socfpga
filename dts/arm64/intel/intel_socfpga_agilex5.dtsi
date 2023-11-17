@@ -382,7 +382,7 @@
 		interrupts = <GIC_SPI 97 IRQ_TYPE_LEVEL IRQ_DEFAULT_PRIORITY>;
 		resets = <&reset RSTMGR_NAND_RSTLINE>,
 				<&reset RSTMGR_SOFTPHY_RSTLINE>;
-		block-size = <0x20000>;
+		block-size = <0x100000>;
 		data-rate-mode = <0>;
 		status = "disabled";
 	};
